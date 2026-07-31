@@ -8,6 +8,7 @@ import MarketSummaryCard from "@/components/dashboard/MarketSummaryCard";
 import RecommendationCard from "@/components/dashboard/RecommendationCard";
 import IndicatorCard from "@/components/dashboard/IndicatorCard";
 import ChartCard from "@/components/dashboard/ChartCard";
+import TopMovers from "@/components/dashboard/TopMovers";
 
 import useStock from "@/hooks/useStock";
 
@@ -39,11 +40,9 @@ export default function DashboardPage() {
     <DashboardLayout>
 
       {/* Live Market Cards */}
-
       <MarketCards />
 
       {/* Market Summary + AI Recommendation */}
-
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
 
         <div className="xl:col-span-2">
@@ -62,7 +61,6 @@ export default function DashboardPage() {
       </div>
 
       {/* Search */}
-
       <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
 
         <div className="mb-5 flex items-center justify-between">
@@ -85,9 +83,7 @@ export default function DashboardPage() {
             className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none transition focus:border-blue-500"
             placeholder="RELIANCE, TCS, INFY..."
             value={input}
-            onChange={(e) =>
-              setInput(e.target.value.toUpperCase())
-            }
+            onChange={(e) => setInput(e.target.value.toUpperCase())}
           />
 
           <button
@@ -102,13 +98,11 @@ export default function DashboardPage() {
       </div>
 
       {/* TradingView Chart */}
-
       <div className="mt-6">
         <ChartCard symbol={symbol} />
       </div>
 
       {/* Indicators */}
-
       <div className="mt-6 grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
 
         <IndicatorCard
@@ -127,8 +121,7 @@ export default function DashboardPage() {
           title="MACD"
           value={data.indicators.MACD.toFixed(2)}
           status={
-            data.indicators.MACD >
-            data.indicators.MACD_SIGNAL
+            data.indicators.MACD > data.indicators.MACD_SIGNAL
               ? "Bullish"
               : "Bearish"
           }
@@ -150,6 +143,11 @@ export default function DashboardPage() {
           status={data.recommendation.recommendation}
         />
 
+      </div>
+
+      {/* Top Gainers & Top Losers */}
+      <div className="mt-6">
+        <TopMovers />
       </div>
 
     </DashboardLayout>
