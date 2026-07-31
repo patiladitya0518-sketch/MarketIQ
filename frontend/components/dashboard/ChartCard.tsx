@@ -20,6 +20,21 @@ interface Props {
 
 const periods = ["1D", "5D", "1M", "3M", "6M", "1Y"];
 
+// ✅ FIXED TIME FORMATTER
+const formatChartTime = (time: string) => {
+  if (time.includes(" ")) {
+    return Math.floor(
+      new Date(time.replace(" ", "T")).getTime() / 1000
+    ) as any;
+  }
+
+  if (time.includes("T")) {
+    return time.split("T")[0] as any;
+  }
+
+  return time as any;
+};
+
 export default function ChartCard({ symbol }: Props) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
@@ -68,87 +83,87 @@ export default function ChartCard({ symbol }: Props) {
       },
     });
 
+    // ==========================
     // Candlestick
+    // ==========================
+
     const candleSeries = chart.addSeries(CandlestickSeries);
 
     candleSeries.setData(
-  data.map((item) => ({
-    time: item.time.includes(" ")
-      ? (Math.floor(new Date(item.time.replace(" ", "T")).getTime() / 1000) as any)
-      : (item.time as any),
+      data.map((item) => ({
+        time: formatChartTime(item.time),
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+      }))
+    );
 
-    open: item.open,
-    high: item.high,
-    low: item.low,
-    close: item.close,
-  }))
-);
-
+    // ==========================
     // EMA20
+    // ==========================
+
     const ema20Series = chart.addSeries(LineSeries, {
       color: "#3B82F6",
       lineWidth: 2,
       title: "EMA20",
     });
 
-   ema20Series.setData(
-  data.map((item) => ({
-    time: item.time.includes(" ")
-      ? (Math.floor(new Date(item.time.replace(" ", "T")).getTime() / 1000) as any)
-      : (item.time as any),
+    ema20Series.setData(
+      data.map((item) => ({
+        time: formatChartTime(item.time),
+        value: item.ema20,
+      }))
+    );
 
-    value: item.ema20,
-  }))
-);
-
+    // ==========================
     // EMA50
+    // ==========================
 
-const ema50Series = chart.addSeries(LineSeries, {
-  color: "#F59E0B",
-  lineWidth: 2,
-  title: "EMA50",
-});
+    const ema50Series = chart.addSeries(LineSeries, {
+      color: "#F59E0B",
+      lineWidth: 2,
+      title: "EMA50",
+    });
 
-ema50Series.setData(
-  data.map((item) => ({
-    time: item.time.includes(" ")
-      ? (Math.floor(new Date(item.time.replace(" ", "T")).getTime() / 1000) as any)
-      : (item.time as any),
+    ema50Series.setData(
+      data.map((item) => ({
+        time: formatChartTime(item.time),
+        value: item.ema50,
+      }))
+    );
 
-    value: item.ema50,
-  }))
-);
+    // ==========================
+    // Support Lines
+    // ==========================
 
-// ==========================
-// Support Price Lines
-// ==========================
+    levels.support.forEach((price) => {
+      candleSeries.createPriceLine({
+        price,
+        color: "#22c55e",
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "Support",
+      });
+    });
 
-levels.support.forEach((price) => {
-  candleSeries.createPriceLine({
-    price,
-    color: "#22c55e",
-    lineWidth: 2,
-    lineStyle: 2,
-    axisLabelVisible: true,
-    title: "Support",
-  });
-});
+    // ==========================
+    // Resistance Lines
+    // ==========================
 
-// ==========================
-// Resistance Price Lines
-// ==========================
+    levels.resistance.forEach((price) => {
+      candleSeries.createPriceLine({
+        price,
+        color: "#ef4444",
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "Resistance",
+      });
+    });
 
-levels.resistance.forEach((price) => {
-  candleSeries.createPriceLine({
-    price,
-    color: "#ef4444",
-    lineWidth: 2,
-    lineStyle: 2,
-    axisLabelVisible: true,
-    title: "Resistance",
-  });
-});
-chart.timeScale().fitContent();
+    chart.timeScale().fitContent();
 
     const resize = () => {
       if (!chartContainerRef.current) return;
@@ -164,23 +179,14 @@ chart.timeScale().fitContent();
       window.removeEventListener("resize", resize);
       chart.remove();
     };
-    }, [data, levels, loading]);
+  }, [data, levels, loading]);
 
   return (
     <div className="space-y-6">
-
-      {/* Main Chart */}
-
       <div className="rounded-2xl border border-slate-800 bg-slate-900 shadow-xl">
-
-        {/* Header */}
-
         <div className="flex flex-col gap-4 border-b border-slate-800 p-5 lg:flex-row lg:items-center lg:justify-between">
-
           <div>
-            <h2 className="text-2xl font-bold text-white">
-              {symbol}
-            </h2>
+            <h2 className="text-2xl font-bold text-white">{symbol}</h2>
 
             <p className="text-sm text-slate-400">
               NSE Candlestick Chart
@@ -202,13 +208,9 @@ chart.timeScale().fitContent();
               </button>
             ))}
           </div>
-
         </div>
 
-        {/* Indicator Badges */}
-
         <div className="flex flex-wrap gap-3 border-b border-slate-800 px-5 py-4">
-
           <span className="rounded-full bg-blue-500/20 px-3 py-1 text-xs font-semibold text-blue-400">
             EMA20
           </span>
@@ -220,10 +222,7 @@ chart.timeScale().fitContent();
           <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
             Candlestick
           </span>
-
         </div>
-
-        {/* Chart */}
 
         {loading ? (
           <div className="flex h-[520px] items-center justify-center">
@@ -241,25 +240,15 @@ chart.timeScale().fitContent();
             className="w-full"
           />
         )}
-
       </div>
 
-      {/* Indicator Panels */}
-
       {!loading && data.length > 0 && (
-
         <div className="space-y-6">
-
           <VolumeChart data={data} />
-
           <RSIChart data={data} />
-
           <MACDChart data={data} />
-
         </div>
-
       )}
-
     </div>
   );
 }
