@@ -9,6 +9,7 @@ import RecommendationCard from "@/components/dashboard/RecommendationCard";
 import IndicatorCard from "@/components/dashboard/IndicatorCard";
 import ChartCard from "@/components/dashboard/ChartCard";
 import TopMovers from "@/components/dashboard/TopMovers";
+import NewsCard from "@/components/dashboard/NewsCard";
 
 import useStock from "@/hooks/useStock";
 
@@ -83,7 +84,9 @@ export default function DashboardPage() {
             className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none transition focus:border-blue-500"
             placeholder="RELIANCE, TCS, INFY..."
             value={input}
-            onChange={(e) => setInput(e.target.value.toUpperCase())}
+            onChange={(e) =>
+              setInput(e.target.value.toUpperCase())
+            }
           />
 
           <button
@@ -121,7 +124,8 @@ export default function DashboardPage() {
           title="MACD"
           value={data.indicators.MACD.toFixed(2)}
           status={
-            data.indicators.MACD > data.indicators.MACD_SIGNAL
+            data.indicators.MACD >
+            data.indicators.MACD_SIGNAL
               ? "Bullish"
               : "Bearish"
           }
@@ -148,6 +152,11 @@ export default function DashboardPage() {
       {/* Top Gainers & Top Losers */}
       <div className="mt-6">
         <TopMovers />
+      </div>
+
+      {/* Latest Financial News */}
+      <div className="mt-6">
+        <NewsCard />
       </div>
 
     </DashboardLayout>
