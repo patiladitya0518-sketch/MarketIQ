@@ -30,6 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 def root():
     return {"message": "Welcome to MarketIQ API 🚀"}
@@ -95,7 +96,10 @@ def get_chart(symbol: str, period: str = "6M"):
     period_map = {
         "1D": ("1d", "5m"),
         "5D": ("5d", "15m"),
-        "1M": ("1mo", "1d"),
+
+        # Fetch 3 months so indicators can be calculated
+        "1M": ("3mo", "1d"),
+
         "3M": ("3mo", "1d"),
         "6M": ("6mo", "1d"),
         "1Y": ("1y", "1d"),
@@ -118,9 +122,13 @@ def get_chart(symbol: str, period: str = "6M"):
             "message": f"'{symbol}' is not a valid NSE stock symbol."
         }
 
+    # Calculate indicators
     df = calculate_indicators(df)
+
+    # Calculate support/resistance
     levels = calculate_support_resistance(df)
 
+    # Remove rows where indicators are unavailable
     df = df.dropna(
         subset=[
             "EMA20",
@@ -130,6 +138,10 @@ def get_chart(symbol: str, period: str = "6M"):
             "MACD_SIGNAL",
         ]
     )
+
+    # Show only the latest one month of candles
+    if period.upper() == "1M":
+        df = df.tail(22)
 
     chart_data = []
 
