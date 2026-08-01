@@ -1,12 +1,38 @@
 import pandas as pd
 
+from services.bullish_patterns import (
+    detect_bullish_engulfing,
+    detect_hammer,
+    detect_morning_star,
+    detect_piercing_pattern,
+    detect_three_white_soldiers,
+)
+
+from services.bearish_patterns import (
+    detect_bearish_engulfing,
+    detect_shooting_star,
+    detect_evening_star,
+    detect_dark_cloud_cover,
+    detect_hanging_man,
+)
+
+from services.neutral_patterns import (
+    detect_doji,
+    detect_spinning_top,
+    detect_dragonfly_doji,
+    detect_gravestone_doji,
+    detect_marubozu,
+)
+
+from services.confidence_service import calculate_confidence
+
 
 def detect_pattern(df: pd.DataFrame):
     """
-    Detect simple candlestick patterns.
+    Main AI Pattern Detection Engine
     """
 
-    if len(df) < 2:
+    if len(df) < 3:
         return {
             "pattern": "Unknown",
             "signal": "HOLD",
@@ -14,56 +40,103 @@ def detect_pattern(df: pd.DataFrame):
             "reason": ["Not enough candle data"],
         }
 
-    prev = df.iloc[-2]
-    curr = df.iloc[-1]
+    # =====================================================
+    # Bullish Pattern Checks
+    # =====================================================
 
-    # ---------------------------------------------------
-    # Bullish Engulfing
-    # ---------------------------------------------------
+    bullish_patterns = [
+        detect_bullish_engulfing,
+        detect_hammer,
+        detect_morning_star,
+        detect_piercing_pattern,
+        detect_three_white_soldiers,
+    ]
 
-    if (
-        prev["Close"] < prev["Open"]
-        and curr["Close"] > curr["Open"]
-        and curr["Open"] < prev["Close"]
-        and curr["Close"] > prev["Open"]
-    ):
-        return {
-            "pattern": "Bullish Engulfing",
-            "signal": "BUY",
-            "confidence": 92,
-            "reason": [
-                "Bullish engulfing detected",
-                "Strong buying pressure",
-                "Possible trend reversal",
-            ],
-        }
+    for detector in bullish_patterns:
 
-    # ---------------------------------------------------
-    # Bearish Engulfing
-    # ---------------------------------------------------
+        result = detector(df)
 
-    if (
-        prev["Close"] > prev["Open"]
-        and curr["Close"] < curr["Open"]
-        and curr["Open"] > prev["Close"]
-        and curr["Close"] < prev["Open"]
-    ):
-        return {
-            "pattern": "Bearish Engulfing",
-            "signal": "SELL",
-            "confidence": 90,
-            "reason": [
-                "Bearish engulfing detected",
-                "Selling pressure increasing",
-                "Possible downtrend",
-            ],
-        }
+        if result:
+
+            confidence, reasons = calculate_confidence(df, result)
+
+            return {
+                "pattern": result["pattern"],
+                "signal": result["signal"],
+                "confidence": confidence,
+                "reason": reasons,
+            }
+
+    # =====================================================
+    # Bearish Pattern Checks
+    # =====================================================
+
+    bearish_patterns = [
+        detect_bearish_engulfing,
+        detect_shooting_star,
+        detect_evening_star,
+        detect_dark_cloud_cover,
+        detect_hanging_man,
+    ]
+
+    for detector in bearish_patterns:
+
+        result = detector(df)
+
+        if result:
+
+            confidence, reasons = calculate_confidence(df, result)
+
+            return {
+                "pattern": result["pattern"],
+                "signal": result["signal"],
+                "confidence": confidence,
+                "reason": reasons,
+            }
+
+    # =====================================================
+    # Neutral Pattern Checks
+    # =====================================================
+
+    neutral_patterns = [
+        detect_doji,
+        detect_spinning_top,
+        detect_dragonfly_doji,
+        detect_gravestone_doji,
+        detect_marubozu,
+    ]
+
+    for detector in neutral_patterns:
+
+        result = detector(df)
+
+        if result:
+
+            confidence, reasons = calculate_confidence(df, result)
+
+            return {
+                "pattern": result["pattern"],
+                "signal": result["signal"],
+                "confidence": confidence,
+                "reason": reasons,
+            }
+
+    # =====================================================
+    # No Pattern Found
+    # =====================================================
+
+    confidence, reasons = calculate_confidence(
+        df,
+        {
+            "pattern": "No Strong Pattern",
+            "signal": "HOLD",
+            "strength": 10,
+        },
+    )
 
     return {
         "pattern": "No Strong Pattern",
         "signal": "HOLD",
-        "confidence": 60,
-        "reason": [
-            "No major candlestick pattern detected"
-        ],
+        "confidence": confidence,
+        "reason": reasons,
     }
