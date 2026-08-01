@@ -5,11 +5,12 @@ from services.data_service import get_stock_history
 from services.indicator_service import calculate_indicators
 from services.recommendation_service import generate_recommendation
 from services.support_resistance_service import calculate_support_resistance
+from services.pattern_service import detect_pattern
 
 app = FastAPI(
     title="MarketIQ API",
     description="AI Stock Market Analysis API",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 # ==========================================================
@@ -56,6 +57,7 @@ def stock(symbol: str):
             "message": f"'{symbol}' is not a valid NSE stock symbol."
         }
 
+    # Calculate indicators
     df = calculate_indicators(df)
 
     latest = df.iloc[-1]
@@ -69,12 +71,17 @@ def stock(symbol: str):
         "MACD_SIGNAL": float(latest["MACD_SIGNAL"]),
     }
 
+    # AI Recommendation
     recommendation = generate_recommendation(indicators)
+
+    # AI Pattern Detection
+    pattern = detect_pattern(df)
 
     return {
         "success": True,
         "symbol": symbol.upper(),
         "price": round(indicators["Close"], 2),
+
         "indicators": {
             "RSI": round(indicators["RSI"], 2),
             "EMA20": round(indicators["EMA20"], 2),
@@ -82,7 +89,11 @@ def stock(symbol: str):
             "MACD": round(indicators["MACD"], 2),
             "MACD_SIGNAL": round(indicators["MACD_SIGNAL"], 2),
         },
+
         "recommendation": recommendation,
+
+        # NEW AI Pattern Detection
+        "pattern": pattern,
     }
 
 
@@ -97,7 +108,7 @@ def get_chart(symbol: str, period: str = "6M"):
         "1D": ("1d", "5m"),
         "5D": ("5d", "15m"),
 
-        # Fetch 3 months so indicators can be calculated
+        # Fetch extra history so indicators calculate correctly
         "1M": ("3mo", "1d"),
 
         "3M": ("3mo", "1d"),
@@ -125,10 +136,10 @@ def get_chart(symbol: str, period: str = "6M"):
     # Calculate indicators
     df = calculate_indicators(df)
 
-    # Calculate support/resistance
+    # Support / Resistance
     levels = calculate_support_resistance(df)
 
-    # Remove rows where indicators are unavailable
+    # Remove rows where indicators aren't available
     df = df.dropna(
         subset=[
             "EMA20",
@@ -139,7 +150,7 @@ def get_chart(symbol: str, period: str = "6M"):
         ]
     )
 
-    # Show only the latest one month of candles
+    # Show only the latest month
     if period.upper() == "1M":
         df = df.tail(22)
 
@@ -175,9 +186,11 @@ def get_chart(symbol: str, period: str = "6M"):
         "symbol": symbol.upper(),
         "period": period.upper(),
         "count": len(chart_data),
+
         "levels": {
             "support": [round(level, 2) for level in levels["support"]],
             "resistance": [round(level, 2) for level in levels["resistance"]],
         },
+
         "data": chart_data,
     }

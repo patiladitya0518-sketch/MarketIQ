@@ -10,6 +10,7 @@ import IndicatorCard from "@/components/dashboard/IndicatorCard";
 import ChartCard from "@/components/dashboard/ChartCard";
 import TopMovers from "@/components/dashboard/TopMovers";
 import NewsCard from "@/components/dashboard/NewsCard";
+import PatternCard from "@/components/dashboard/PatternCard";
 
 import useStock from "@/hooks/useStock";
 
@@ -25,9 +26,11 @@ export default function DashboardPage() {
         <div className="flex h-[80vh] items-center justify-center">
           <div className="text-center">
             <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+
             <h2 className="text-2xl font-bold text-white">
               Loading MarketIQ...
             </h2>
+
             <p className="mt-2 text-slate-400">
               Fetching latest market data
             </p>
@@ -84,9 +87,7 @@ export default function DashboardPage() {
             className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none transition focus:border-blue-500"
             placeholder="RELIANCE, TCS, INFY..."
             value={input}
-            onChange={(e) =>
-              setInput(e.target.value.toUpperCase())
-            }
+            onChange={(e) => setInput(e.target.value.toUpperCase())}
           />
 
           <button
@@ -152,6 +153,11 @@ export default function DashboardPage() {
       {/* Top Gainers & Top Losers */}
       <div className="mt-6">
         <TopMovers />
+      </div>
+
+      {/* AI Pattern Detection */}
+      <div className="mt-6">
+        <PatternCard pattern={data?.pattern} />
       </div>
 
       {/* Latest Financial News */}

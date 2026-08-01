@@ -3,8 +3,40 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 
+interface Pattern {
+  pattern: string;
+  signal: string;
+  confidence: number;
+  reason: string[];
+}
+
+interface Recommendation {
+  recommendation: string;
+  confidence: number;
+  reasons: string[];
+}
+
+interface Indicators {
+  RSI: number;
+  EMA20: number;
+  EMA50: number;
+  MACD: number;
+  MACD_SIGNAL: number;
+}
+
+export interface StockResponse {
+  success: boolean;
+  symbol: string;
+  price: number;
+  indicators: Indicators;
+  recommendation: Recommendation;
+
+  // NEW
+  pattern: Pattern;
+}
+
 export default function useStock(symbol: string) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<StockResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,5 +63,8 @@ export default function useStock(symbol: string) {
     fetchStock();
   }, [symbol]);
 
-  return { data, loading };
+  return {
+    data,
+    loading,
+  };
 }
