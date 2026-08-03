@@ -1,15 +1,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# Config
+from config import settings
+
 # Routers
 from api.health import router as health_router
 from api.stock import router as stock_router
 from api.chart import router as chart_router
 
 app = FastAPI(
-    title="MarketIQ API",
+    title=settings.APP_NAME,
     description="AI Stock Market Analysis API",
-    version="1.2.0",
+    version=settings.APP_VERSION,
 )
 
 # ==========================================================
@@ -17,7 +20,7 @@ app = FastAPI(
 # ==========================================================
 
 origins = [
-    "http://localhost:3000",
+    settings.FRONTEND_URL,
     "http://127.0.0.1:3000",
     "https://market-iq-five-orpin.vercel.app",
 ]
