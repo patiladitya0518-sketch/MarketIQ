@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Next.js
+frontend/.next/
+frontend/out/
+
+# Node
+frontend/node_modules/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Python coverage
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.temp

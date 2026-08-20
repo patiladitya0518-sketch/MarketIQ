@@ -1,24 +1,4 @@
-from services.data_service import get_stock_history
-
-
-def get_live_price(symbol: str):
-    """
-    Get the latest available NSE price for a stock.
-    """
-
-    df = get_stock_history(symbol)
-
-    if df.empty:
-        return None
-
-    latest_price = float(
-        df.iloc[-1]["Close"]
-    )
-
-    return round(
-        latest_price,
-        2,
-    )
+from services.data_service import get_live_price
 
 
 def calculate_holding_pnl(

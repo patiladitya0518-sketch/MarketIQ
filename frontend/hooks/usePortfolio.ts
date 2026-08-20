@@ -9,17 +9,19 @@ export interface PortfolioItem {
   quantity: number;
   average_price: number;
 
-  // Live market data
   current_price: number | null;
-
-  // P&L data
   invested_value: number;
   current_value: number | null;
   pnl: number | null;
   pnl_percentage: number | null;
-
-  // Whether live price was successfully retrieved
+  allocation_percentage: number;
   price_available: boolean;
+}
+
+export interface PortfolioPerformer {
+  symbol: string;
+  pnl: number;
+  pnl_percentage: number;
 }
 
 export interface PortfolioSummary {
@@ -27,131 +29,181 @@ export interface PortfolioSummary {
   total_current_value: number;
   total_pnl: number;
   total_pnl_percentage: number;
+
+  total_holdings: number;
+  profitable_holdings: number;
+  losing_holdings: number;
+
+  best_performer: PortfolioPerformer | null;
+  worst_performer: PortfolioPerformer | null;
+
+  portfolio_health: string;
+  risk_level: string;
 }
 
-interface LivePortfolioResponse {
-  success: boolean;
-  holdings: PortfolioItem[];
-  summary: PortfolioSummary;
-}
+const emptySummary: PortfolioSummary = {
+  total_invested: 0,
+  total_current_value: 0,
+  total_pnl: 0,
+  total_pnl_percentage: 0,
+
+  total_holdings: 0,
+  profitable_holdings: 0,
+  losing_holdings: 0,
+
+  best_performer: null,
+  worst_performer: null,
+
+  portfolio_health: "No Holdings",
+  risk_level: "No Data",
+};
 
 export default function usePortfolio() {
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
-  const [summary, setSummary] = useState<PortfolioSummary>({
-    total_invested: 0,
-    total_current_value: 0,
-    total_pnl: 0,
-    total_pnl_percentage: 0,
-  });
+  const [summary, setSummary] =
+    useState<PortfolioSummary>(emptySummary);
 
+  // Initial page loading
   const [loading, setLoading] = useState(true);
 
-  // =========================
+  // Background refresh indicator
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Last successful update time
+  const [lastUpdated, setLastUpdated] =
+    useState<Date | null>(null);
+
+  // ============================================================
   // GET LIVE PORTFOLIO
-  // =========================
-  const fetchPortfolio = useCallback(async () => {
-    try {
-      setLoading(true);
+  // ============================================================
 
-      const token = localStorage.getItem("access_token");
+  const fetchPortfolio = useCallback(
+    async (backgroundRefresh = false) => {
+      try {
+        if (backgroundRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
 
-      if (!token) {
-        console.warn("No access token found.");
+        const token =
+          localStorage.getItem("access_token");
 
-        setPortfolio([]);
+        if (!token) {
+          console.warn(
+            "No access token found."
+          );
 
-        setSummary({
-          total_invested: 0,
-          total_current_value: 0,
-          total_pnl: 0,
-          total_pnl_percentage: 0,
-        });
+          setPortfolio([]);
+          setSummary(emptySummary);
 
-        return;
+          return;
+        }
+
+        const response =
+          await api.get("/portfolio/live");
+
+        console.log(
+          "Portfolio API response:",
+          response.data
+        );
+
+        if (
+          response.data &&
+          response.data.success
+        ) {
+          setPortfolio(
+            response.data.holdings || []
+          );
+
+          setSummary({
+            ...emptySummary,
+            ...(response.data.summary || {}),
+          });
+
+          // Record successful update time
+          setLastUpdated(new Date());
+        } else {
+          console.warn(
+            "Portfolio API returned unsuccessful response:",
+            response.data
+          );
+        }
+      } catch (error: any) {
+        console.error(
+          "Failed to fetch portfolio:",
+          error?.response?.data ||
+            error?.message ||
+            error
+        );
+
+        // Keep existing data if a background
+        // refresh temporarily fails.
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
+    },
+    []
+  );
 
-      const response = await api.get<LivePortfolioResponse>(
-        "/portfolio/live"
-      );
-
-      setPortfolio(response.data.holdings);
-
-      setSummary(response.data.summary);
-    } catch (error: any) {
-      console.error(
-        "Failed to fetch live portfolio:",
-        error?.response?.data || error
-      );
-
-      setPortfolio([]);
-
-      setSummary({
-        total_invested: 0,
-        total_current_value: 0,
-        total_pnl: 0,
-        total_pnl_percentage: 0,
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // =========================
+  // ============================================================
   // ADD TO PORTFOLIO
-  // =========================
+  // ============================================================
+
   const addPortfolioItem = async (
     symbol: string,
     quantity: number,
     averagePrice: number
   ) => {
-    const response = await api.post<PortfolioItem>(
-      "/portfolio",
-      {
+    const response =
+      await api.post("/portfolio", {
         symbol: symbol.toUpperCase(),
         quantity,
         average_price: averagePrice,
-      }
-    );
+      });
 
-    // Refresh portfolio after successful addition
     await fetchPortfolio();
 
     return response.data;
   };
 
-  // =========================
+  // ============================================================
   // DELETE FROM PORTFOLIO
-  // =========================
-  const deletePortfolioItem = async (id: string) => {
-    try {
-      await api.delete(`/portfolio/${id}`);
+  // ============================================================
 
-      // Refresh live prices + P&L
-      await fetchPortfolio();
-    } catch (error: any) {
-      console.error(
-        "Failed to delete portfolio item:",
-        error?.response?.data || error
-      );
+  const deletePortfolioItem =
+    async (id: string) => {
+      try {
+        await api.delete(
+          `/portfolio/${id}`
+        );
 
-      throw error;
-    }
-  };
+        await fetchPortfolio();
+      } catch (error: any) {
+        console.error(
+          "Failed to delete portfolio item:",
+          error?.response?.data ||
+            error?.message ||
+            error
+        );
 
-  // =========================
-  // LOAD PORTFOLIO
-  // =========================
+        throw error;
+      }
+    };
+
+  // ============================================================
+  // INITIAL LOAD + AUTOMATIC REFRESH
+  // ============================================================
+
   useEffect(() => {
-    fetchPortfolio();
-  }, [fetchPortfolio]);
+    // Initial request
+    fetchPortfolio(false);
 
-  // =========================
-  // AUTO REFRESH LIVE PRICES
-  // =========================
-  useEffect(() => {
+    // Refresh every 60 seconds
     const interval = setInterval(() => {
-      fetchPortfolio();
-    }, 60000); // 60 seconds
+      fetchPortfolio(true);
+    }, 60000);
 
     return () => {
       clearInterval(interval);
@@ -161,11 +213,15 @@ export default function usePortfolio() {
   return {
     portfolio,
     summary,
+
     loading,
+    refreshing,
+    lastUpdated,
 
     addPortfolioItem,
     deletePortfolioItem,
 
-    refreshPortfolio: fetchPortfolio,
+    refreshPortfolio: () =>
+      fetchPortfolio(true),
   };
 }

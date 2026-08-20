@@ -29,20 +29,54 @@ from services.confidence_service import calculate_confidence
 
 def detect_pattern(df: pd.DataFrame):
     """
-    Main AI Pattern Detection Engine
+    MarketIQ AI Pattern Detection Engine.
+
+    Checks all supported candlestick patterns and selects
+    the strongest detected pattern instead of returning
+    the first pattern found.
+
+    Supported:
+
+    Bullish:
+    - Bullish Engulfing
+    - Hammer
+    - Morning Star
+    - Piercing Pattern
+    - Three White Soldiers
+
+    Bearish:
+    - Bearish Engulfing
+    - Shooting Star
+    - Evening Star
+    - Dark Cloud Cover
+    - Hanging Man
+
+    Neutral:
+    - Doji
+    - Spinning Top
+    - Dragonfly Doji
+    - Gravestone Doji
+    - Marubozu
     """
 
-    if len(df) < 3:
+    # ============================================================
+    # VALIDATION
+    # ============================================================
+
+    if df is None or len(df) < 3:
+
         return {
             "pattern": "Unknown",
             "signal": "HOLD",
             "confidence": 0,
-            "reason": ["Not enough candle data"],
+            "reason": [
+                "Not enough candle data"
+            ],
         }
 
-    # =====================================================
-    # Bullish Pattern Checks
-    # =====================================================
+    # ============================================================
+    # ALL PATTERN DETECTORS
+    # ============================================================
 
     bullish_patterns = [
         detect_bullish_engulfing,
@@ -52,25 +86,6 @@ def detect_pattern(df: pd.DataFrame):
         detect_three_white_soldiers,
     ]
 
-    for detector in bullish_patterns:
-
-        result = detector(df)
-
-        if result:
-
-            confidence, reasons = calculate_confidence(df, result)
-
-            return {
-                "pattern": result["pattern"],
-                "signal": result["signal"],
-                "confidence": confidence,
-                "reason": reasons,
-            }
-
-    # =====================================================
-    # Bearish Pattern Checks
-    # =====================================================
-
     bearish_patterns = [
         detect_bearish_engulfing,
         detect_shooting_star,
@@ -78,25 +93,6 @@ def detect_pattern(df: pd.DataFrame):
         detect_dark_cloud_cover,
         detect_hanging_man,
     ]
-
-    for detector in bearish_patterns:
-
-        result = detector(df)
-
-        if result:
-
-            confidence, reasons = calculate_confidence(df, result)
-
-            return {
-                "pattern": result["pattern"],
-                "signal": result["signal"],
-                "confidence": confidence,
-                "reason": reasons,
-            }
-
-    # =====================================================
-    # Neutral Pattern Checks
-    # =====================================================
 
     neutral_patterns = [
         detect_doji,
@@ -106,37 +102,114 @@ def detect_pattern(df: pd.DataFrame):
         detect_marubozu,
     ]
 
-    for detector in neutral_patterns:
-
-        result = detector(df)
-
-        if result:
-
-            confidence, reasons = calculate_confidence(df, result)
-
-            return {
-                "pattern": result["pattern"],
-                "signal": result["signal"],
-                "confidence": confidence,
-                "reason": reasons,
-            }
-
-    # =====================================================
-    # No Pattern Found
-    # =====================================================
-
-    confidence, reasons = calculate_confidence(
-        df,
-        {
-            "pattern": "No Strong Pattern",
-            "signal": "HOLD",
-            "strength": 10,
-        },
+    all_detectors = (
+        bullish_patterns
+        + bearish_patterns
+        + neutral_patterns
     )
 
+    # ============================================================
+    # DETECT ALL MATCHING PATTERNS
+    # ============================================================
+
+    detected_patterns = []
+
+    for detector in all_detectors:
+
+        try:
+
+            result = detector(df)
+
+            if result:
+
+                confidence, reasons = calculate_confidence(
+                    df,
+                    result,
+                )
+
+                detected_patterns.append(
+                    {
+                        "pattern": result.get(
+                            "pattern",
+                            "Unknown",
+                        ),
+
+                        "signal": result.get(
+                            "signal",
+                            "HOLD",
+                        ),
+
+                        "strength": result.get(
+                            "strength",
+                            0,
+                        ),
+
+                        "confidence": confidence,
+
+                        "reason": reasons,
+                    }
+                )
+
+        except Exception as e:
+
+            print(
+                f"Pattern detector error "
+                f"in {detector.__name__}: {e}"
+            )
+
+    # ============================================================
+    # NO PATTERN
+    # ============================================================
+
+    if not detected_patterns:
+
+        confidence, reasons = calculate_confidence(
+            df,
+            {
+                "pattern": "No Strong Pattern",
+                "signal": "HOLD",
+                "strength": 10,
+            },
+        )
+
+        return {
+            "pattern": "No Strong Pattern",
+            "signal": "HOLD",
+            "confidence": confidence,
+            "reason": reasons,
+        }
+
+    # ============================================================
+    # SELECT STRONGEST PATTERN
+    #
+    # Priority:
+    # 1. Pattern strength
+    # 2. Confidence
+    #
+    # This prevents the first detected pattern from
+    # automatically winning.
+    # ============================================================
+
+    detected_patterns.sort(
+        key=lambda x: (
+            x["strength"],
+            x["confidence"],
+        ),
+        reverse=True,
+    )
+
+    strongest = detected_patterns[0]
+
+    # ============================================================
+    # RETURN BEST PATTERN
+    # ============================================================
+
     return {
-        "pattern": "No Strong Pattern",
-        "signal": "HOLD",
-        "confidence": confidence,
-        "reason": reasons,
+        "pattern": strongest["pattern"],
+
+        "signal": strongest["signal"],
+
+        "confidence": strongest["confidence"],
+
+        "reason": strongest["reason"],
     }

@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -65,7 +67,8 @@ def get_portfolio(
 
 
 # ============================================================
-# GET LIVE PORTFOLIO WITH PRICE + P&L
+# GET LIVE PORTFOLIO
+# GROUP DUPLICATE STOCKS INTO ONE HOLDING
 # ============================================================
 
 @router.get("/live")
@@ -78,88 +81,236 @@ def get_live_portfolio(
         current_user.id,
     )
 
+    # ========================================================
+    # GROUP DATABASE ENTRIES BY SYMBOL
+    # ========================================================
+
+    grouped = defaultdict(
+        lambda: {
+            "ids": [],
+            "quantity": 0,
+            "total_invested": 0.0,
+        }
+    )
+
+    for item in portfolio:
+
+        symbol = item.symbol.upper()
+
+        invested = (
+            item.quantity * item.average_price
+        )
+
+        grouped[symbol]["ids"].append(item.id)
+
+        grouped[symbol]["quantity"] += item.quantity
+
+        grouped[symbol]["total_invested"] += invested
+
     holdings = []
 
     total_invested = 0.0
     total_current_value = 0.0
 
-    for item in portfolio:
+    profitable_holdings = 0
+    losing_holdings = 0
 
-        # Get latest market price
-        current_price = get_live_price(item.symbol)
+    best_performer = None
+    worst_performer = None
+
+    allocation_total = 0.0
+
+    # ========================================================
+    # PROCESS EACH UNIQUE STOCK
+    # ========================================================
+
+    for symbol, data in grouped.items():
+
+        quantity = data["quantity"]
+
+        invested_value = data["total_invested"]
 
         # ----------------------------------------------------
-        # Price unavailable
+        # WEIGHTED AVERAGE PRICE
+        # ----------------------------------------------------
+
+        if quantity > 0:
+            average_price = (
+                invested_value / quantity
+            )
+        else:
+            average_price = 0.0
+
+        total_invested += invested_value
+
+        # ----------------------------------------------------
+        # GET LIVE PRICE
+        # ----------------------------------------------------
+
+        current_price = get_live_price(symbol)
+
+        # ----------------------------------------------------
+        # PRICE UNAVAILABLE
         # ----------------------------------------------------
 
         if current_price is None:
 
-            invested_value = (
-                item.quantity * item.average_price
-            )
-
-            total_invested += invested_value
-
             holdings.append({
-                "id": item.id,
-                "symbol": item.symbol,
-                "quantity": item.quantity,
+                "id": data["ids"][0],
+                "symbol": symbol,
+                "quantity": quantity,
+
                 "average_price": round(
-                    item.average_price,
+                    average_price,
                     2,
                 ),
+
                 "current_price": None,
+
                 "invested_value": round(
                     invested_value,
                     2,
                 ),
+
                 "current_value": None,
+
                 "pnl": None,
+
                 "pnl_percentage": None,
+
+                "allocation_percentage": 0.0,
+
                 "price_available": False,
             })
 
             continue
 
         # ----------------------------------------------------
-        # Calculate P&L
+        # CALCULATE P&L
         # ----------------------------------------------------
 
         pnl_data = calculate_holding_pnl(
-            quantity=item.quantity,
-            average_price=item.average_price,
+            quantity=quantity,
+            average_price=average_price,
             current_price=current_price,
         )
 
-        total_invested += pnl_data["invested_value"]
+        current_value = pnl_data[
+            "current_value"
+        ]
 
-        total_current_value += pnl_data["current_value"]
+        pnl = pnl_data["pnl"]
+
+        pnl_percentage = pnl_data[
+            "pnl_percentage"
+        ]
+
+        total_current_value += current_value
+
+        allocation_total += current_value
+
+        # ----------------------------------------------------
+        # PROFIT / LOSS COUNT
+        # ----------------------------------------------------
+
+        if pnl > 0:
+
+            profitable_holdings += 1
+
+        elif pnl < 0:
+
+            losing_holdings += 1
+
+        # ----------------------------------------------------
+        # BEST PERFORMER
+        # ----------------------------------------------------
+
+        if (
+            best_performer is None
+            or pnl_percentage
+            > best_performer["pnl_percentage"]
+        ):
+
+            best_performer = {
+                "symbol": symbol,
+
+                "pnl": round(
+                    pnl,
+                    2,
+                ),
+
+                "pnl_percentage": round(
+                    pnl_percentage,
+                    2,
+                ),
+            }
+
+        # ----------------------------------------------------
+        # WORST PERFORMER
+        # ----------------------------------------------------
+
+        if (
+            worst_performer is None
+            or pnl_percentage
+            < worst_performer["pnl_percentage"]
+        ):
+
+            worst_performer = {
+                "symbol": symbol,
+
+                "pnl": round(
+                    pnl,
+                    2,
+                ),
+
+                "pnl_percentage": round(
+                    pnl_percentage,
+                    2,
+                ),
+            }
+
+        # ----------------------------------------------------
+        # ADD HOLDING
+        # ----------------------------------------------------
 
         holdings.append({
-            "id": item.id,
-            "symbol": item.symbol,
-            "quantity": item.quantity,
+            "id": data["ids"][0],
+
+            "symbol": symbol,
+
+            "quantity": quantity,
+
             "average_price": round(
-                item.average_price,
+                average_price,
                 2,
             ),
-            "current_price": current_price,
 
-            "invested_value": pnl_data[
-                "invested_value"
-            ],
+            "current_price": round(
+                current_price,
+                2,
+            ),
 
-            "current_value": pnl_data[
-                "current_value"
-            ],
+            "invested_value": round(
+                invested_value,
+                2,
+            ),
 
-            "pnl": pnl_data[
-                "pnl"
-            ],
+            "current_value": round(
+                current_value,
+                2,
+            ),
 
-            "pnl_percentage": pnl_data[
-                "pnl_percentage"
-            ],
+            "pnl": round(
+                pnl,
+                2,
+            ),
+
+            "pnl_percentage": round(
+                pnl_percentage,
+                2,
+            ),
+
+            "allocation_percentage": 0.0,
 
             "price_available": True,
         })
@@ -169,15 +320,110 @@ def get_live_portfolio(
     # ========================================================
 
     total_pnl = (
-        total_current_value - total_invested
+        total_current_value
+        - total_invested
     )
 
     if total_invested > 0:
+
         total_pnl_percentage = (
-            total_pnl / total_invested
+            total_pnl
+            / total_invested
         ) * 100
+
     else:
+
         total_pnl_percentage = 0.0
+
+    # ========================================================
+    # PORTFOLIO ALLOCATION
+    # ========================================================
+
+    if allocation_total > 0:
+
+        for holding in holdings:
+
+            if holding["current_value"] is not None:
+
+                holding[
+                    "allocation_percentage"
+                ] = round(
+                    (
+                        holding["current_value"]
+                        / allocation_total
+                    ) * 100,
+                    2,
+                )
+
+    # ========================================================
+    # PORTFOLIO HEALTH
+    # ========================================================
+
+    total_holdings = len(holdings)
+
+    if total_holdings == 0:
+
+        portfolio_health = "No Holdings"
+        risk_level = "No Data"
+
+    else:
+
+        profit_ratio = (
+            profitable_holdings
+            / total_holdings
+        ) * 100
+
+        largest_allocation = 0.0
+
+        for holding in holdings:
+
+            allocation = holding[
+                "allocation_percentage"
+            ]
+
+            if allocation > largest_allocation:
+
+                largest_allocation = allocation
+
+        if largest_allocation >= 70:
+
+            portfolio_health = (
+                "High Concentration"
+            )
+
+            risk_level = "High"
+
+        elif largest_allocation >= 50:
+
+            portfolio_health = (
+                "Moderate Concentration"
+            )
+
+            risk_level = "Medium"
+
+        elif profit_ratio >= 60:
+
+            portfolio_health = "Healthy"
+
+            risk_level = "Low"
+
+        elif profit_ratio >= 40:
+
+            portfolio_health = "Balanced"
+
+            risk_level = "Medium"
+
+        else:
+
+            portfolio_health = (
+                "Under Pressure"
+            )
+
+            risk_level = "High"
+
+    # ========================================================
+    # RESPONSE
+    # ========================================================
 
     return {
         "success": True,
@@ -185,6 +431,7 @@ def get_live_portfolio(
         "holdings": holdings,
 
         "summary": {
+
             "total_invested": round(
                 total_invested,
                 2,
@@ -204,6 +451,26 @@ def get_live_portfolio(
                 total_pnl_percentage,
                 2,
             ),
+
+            "total_holdings": total_holdings,
+
+            "profitable_holdings":
+                profitable_holdings,
+
+            "losing_holdings":
+                losing_holdings,
+
+            "best_performer":
+                best_performer,
+
+            "worst_performer":
+                worst_performer,
+
+            "portfolio_health":
+                portfolio_health,
+
+            "risk_level":
+                risk_level,
         },
     }
 
@@ -225,6 +492,7 @@ def delete_portfolio(
     )
 
     if not deleted:
+
         raise HTTPException(
             status_code=404,
             detail="Portfolio item not found",
