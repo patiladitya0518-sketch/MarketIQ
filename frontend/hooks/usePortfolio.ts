@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
 import api from "@/lib/api";
 
 export interface PortfolioItem {
@@ -59,19 +65,30 @@ const emptySummary: PortfolioSummary = {
 };
 
 export default function usePortfolio() {
-  const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
+  const [portfolio, setPortfolio] =
+    useState<PortfolioItem[]>([]);
+
   const [summary, setSummary] =
     useState<PortfolioSummary>(emptySummary);
 
   // Initial page loading
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] =
+    useState(true);
 
   // Background refresh indicator
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] =
+    useState(false);
 
   // Last successful update time
   const [lastUpdated, setLastUpdated] =
     useState<Date | null>(null);
+
+  /*
+   * Prevent multiple portfolio API requests
+   * from running at the same time.
+   */
+  const requestInProgress =
+    useRef(false);
 
   // ============================================================
   // GET LIVE PORTFOLIO
@@ -79,6 +96,16 @@ export default function usePortfolio() {
 
   const fetchPortfolio = useCallback(
     async (backgroundRefresh = false) => {
+      /*
+       * Do not start another request if one
+       * is already running.
+       */
+      if (requestInProgress.current) {
+        return;
+      }
+
+      requestInProgress.current = true;
+
       try {
         if (backgroundRefresh) {
           setRefreshing(true);
@@ -87,7 +114,9 @@ export default function usePortfolio() {
         }
 
         const token =
-          localStorage.getItem("access_token");
+          localStorage.getItem(
+            "access_token"
+          );
 
         if (!token) {
           console.warn(
@@ -112,17 +141,29 @@ export default function usePortfolio() {
           response.data &&
           response.data.success
         ) {
+          /*
+           * Update holdings with the latest
+           * live prices and P&L.
+           */
           setPortfolio(
             response.data.holdings || []
           );
 
+          /*
+           * Update portfolio totals.
+           */
           setSummary({
             ...emptySummary,
             ...(response.data.summary || {}),
           });
 
-          // Record successful update time
-          setLastUpdated(new Date());
+          /*
+           * Store the exact time when
+           * the API successfully updated.
+           */
+          setLastUpdated(
+            new Date()
+          );
         } else {
           console.warn(
             "Portfolio API returned unsuccessful response:",
@@ -137,11 +178,17 @@ export default function usePortfolio() {
             error
         );
 
-        // Keep existing data if a background
-        // refresh temporarily fails.
+        /*
+         * IMPORTANT:
+         * Keep existing portfolio data if
+         * a background refresh temporarily fails.
+         */
       } finally {
         setLoading(false);
         setRefreshing(false);
+
+        requestInProgress.current =
+          false;
       }
     },
     []
@@ -158,12 +205,20 @@ export default function usePortfolio() {
   ) => {
     const response =
       await api.post("/portfolio", {
-        symbol: symbol.toUpperCase(),
+        symbol:
+          symbol.toUpperCase(),
+
         quantity,
-        average_price: averagePrice,
+
+        average_price:
+          averagePrice,
       });
 
-    await fetchPortfolio();
+    /*
+     * Immediately refresh after adding
+     * a stock so the new holding appears.
+     */
+    await fetchPortfolio(false);
 
     return response.data;
   };
@@ -179,7 +234,11 @@ export default function usePortfolio() {
           `/portfolio/${id}`
         );
 
-        await fetchPortfolio();
+        /*
+         * Immediately refresh after
+         * deleting a holding.
+         */
+        await fetchPortfolio(false);
       } catch (error: any) {
         console.error(
           "Failed to delete portfolio item:",
@@ -193,22 +252,75 @@ export default function usePortfolio() {
     };
 
   // ============================================================
-  // INITIAL LOAD + AUTOMATIC REFRESH
+  // INITIAL LOAD + AUTOMATIC LIVE REFRESH
   // ============================================================
 
   useEffect(() => {
-    // Initial request
+    /*
+     * Initial portfolio request.
+     */
     fetchPortfolio(false);
 
-    // Refresh every 60 seconds
+    /*
+     * Refresh live P&L every 30 seconds.
+     */
     const interval = setInterval(() => {
       fetchPortfolio(true);
-    }, 60000);
+    }, 30000);
 
+    /*
+     * Refresh immediately when the user
+     * returns to the browser tab.
+     */
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+        fetchPortfolio(true);
+      }
+    };
+
+    /*
+     * Refresh immediately when the
+     * browser window gets focus.
+     */
+    const handleWindowFocus = () => {
+      fetchPortfolio(true);
+    };
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    window.addEventListener(
+      "focus",
+      handleWindowFocus
+    );
+
+    /*
+     * Cleanup everything when the
+     * dashboard component unmounts.
+     */
     return () => {
       clearInterval(interval);
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleWindowFocus
+      );
     };
   }, [fetchPortfolio]);
+
+  // ============================================================
+  // RETURN
+  // ============================================================
 
   return {
     portfolio,
@@ -221,6 +333,9 @@ export default function usePortfolio() {
     addPortfolioItem,
     deletePortfolioItem,
 
+    /*
+     * Manual refresh button.
+     */
     refreshPortfolio: () =>
       fetchPortfolio(true),
   };

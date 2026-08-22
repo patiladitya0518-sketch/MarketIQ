@@ -43,15 +43,26 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-950">
-      <Sidebar />
+    <div className="min-h-screen bg-slate-950 text-white">
 
-      <div className="flex flex-1 flex-col">
+      {/* FIXED SIDEBAR */}
+      <div className="fixed inset-y-0 left-0 z-40 w-64">
+        <Sidebar />
+      </div>
+
+      {/* MAIN AREA */}
+      <div className="ml-64 min-h-screen min-w-0">
+
+        {/* TOPBAR */}
         <Topbar />
 
-        <main className="flex-1 p-8">
-          {children}
+        {/* CONTENT */}
+        <main className="w-full px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-[1800px]">
+            {children}
+          </div>
         </main>
+
       </div>
     </div>
   );

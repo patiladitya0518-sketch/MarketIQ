@@ -14,27 +14,52 @@ export default function Navbar() {
         {/* Navigation */}
         <div className="hidden items-center gap-8 text-slate-300 md:flex">
 
-          <Link href="/" className="transition hover:text-white">
+          <Link
+            href="/"
+            className="transition hover:text-white"
+          >
             Home
           </Link>
 
-          <Link href="/dashboard" className="transition hover:text-white">
+          <Link
+            href="/dashboard"
+            className="transition hover:text-white"
+          >
             Dashboard
           </Link>
 
-          <a href="#features" className="transition hover:text-white">
+          <Link
+            href="/backtest"
+            className="transition hover:text-white"
+          >
+            Backtest
+          </Link>
+
+          <a
+            href="/#features"
+            className="transition hover:text-white"
+          >
             Features
           </a>
 
-          <a href="#pricing" className="transition hover:text-white">
+          <a
+            href="/#pricing"
+            className="transition hover:text-white"
+          >
             Pricing
           </a>
 
-          <a href="#about" className="transition hover:text-white">
+          <a
+            href="/#about"
+            className="transition hover:text-white"
+          >
             About
           </a>
 
-          <a href="#contact" className="transition hover:text-white">
+          <a
+            href="/#contact"
+            className="transition hover:text-white"
+          >
             Contact
           </a>
 
@@ -43,9 +68,12 @@ export default function Navbar() {
         {/* Buttons */}
         <div className="flex items-center gap-3">
 
-          <button className="rounded-xl border border-slate-700 px-5 py-2 font-semibold text-white transition hover:bg-slate-800">
+          <Link
+            href="/login"
+            className="rounded-xl border border-slate-700 px-5 py-2 font-semibold text-white transition hover:bg-slate-800"
+          >
             Login
-          </button>
+          </Link>
 
           <Link
             href="/dashboard"

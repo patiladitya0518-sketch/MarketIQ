@@ -27,43 +27,28 @@ from services.neutral_patterns import (
 from services.confidence_service import calculate_confidence
 
 
+# ============================================================
+# PATTERN DETECTION ENGINE
+# ============================================================
+
 def detect_pattern(df: pd.DataFrame):
-    """
-    MarketIQ AI Pattern Detection Engine.
 
-    Checks all supported candlestick patterns and selects
-    the strongest detected pattern instead of returning
-    the first pattern found.
-
-    Supported:
-
-    Bullish:
-    - Bullish Engulfing
-    - Hammer
-    - Morning Star
-    - Piercing Pattern
-    - Three White Soldiers
-
-    Bearish:
-    - Bearish Engulfing
-    - Shooting Star
-    - Evening Star
-    - Dark Cloud Cover
-    - Hanging Man
-
-    Neutral:
-    - Doji
-    - Spinning Top
-    - Dragonfly Doji
-    - Gravestone Doji
-    - Marubozu
-    """
-
-    # ============================================================
+    # ========================================================
     # VALIDATION
-    # ============================================================
+    # ========================================================
 
-    if df is None or len(df) < 3:
+    if df is None or df.empty:
+
+        return {
+            "pattern": "Unknown",
+            "signal": "HOLD",
+            "confidence": 0,
+            "reason": [
+                "No market data available"
+            ],
+        }
+
+    if len(df) < 3:
 
         return {
             "pattern": "Unknown",
@@ -74,47 +59,218 @@ def detect_pattern(df: pd.DataFrame):
             ],
         }
 
-    # ============================================================
-    # ALL PATTERN DETECTORS
-    # ============================================================
+    # ========================================================
+    # REQUIRED COLUMNS
+    # ========================================================
+
+    required_columns = [
+        "Open",
+        "High",
+        "Low",
+        "Close",
+    ]
+
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+
+        return {
+            "pattern": "Unknown",
+            "signal": "HOLD",
+            "confidence": 0,
+            "reason": [
+                "Missing candle columns: "
+                + ", ".join(missing_columns)
+            ],
+        }
+
+    # ========================================================
+    # REMOVE INVALID CANDLES
+    # ========================================================
+
+    df = df.copy()
+
+    for column in required_columns:
+
+        df[column] = pd.to_numeric(
+            df[column],
+            errors="coerce",
+        )
+
+    df = df.dropna(
+        subset=required_columns
+    )
+
+    if len(df) < 3:
+
+        return {
+            "pattern": "Unknown",
+            "signal": "HOLD",
+            "confidence": 0,
+            "reason": [
+                "Not enough valid OHLC candle data"
+            ],
+        }
+
+    # ========================================================
+    # DETECTORS
+    # ========================================================
 
     bullish_patterns = [
+
         detect_bullish_engulfing,
+
         detect_hammer,
+
         detect_morning_star,
+
         detect_piercing_pattern,
+
         detect_three_white_soldiers,
+
     ]
 
     bearish_patterns = [
+
         detect_bearish_engulfing,
+
         detect_shooting_star,
+
         detect_evening_star,
+
         detect_dark_cloud_cover,
+
         detect_hanging_man,
+
     ]
 
     neutral_patterns = [
+
         detect_doji,
+
         detect_spinning_top,
+
         detect_dragonfly_doji,
+
         detect_gravestone_doji,
+
         detect_marubozu,
+
     ]
 
-    all_detectors = (
-        bullish_patterns
-        + bearish_patterns
-        + neutral_patterns
-    )
-
-    # ============================================================
-    # DETECT ALL MATCHING PATTERNS
-    # ============================================================
+    # ========================================================
+    # STORE ALL DETECTED PATTERNS
+    # ========================================================
 
     detected_patterns = []
 
-    for detector in all_detectors:
+    # ========================================================
+    # BULLISH
+    # ========================================================
+
+    for detector in bullish_patterns:
+
+        try:
+
+            result = detector(df)
+
+            if result:
+
+                confidence, reasons = calculate_confidence(
+                    df,
+                    result,
+                )
+
+                detected_patterns.append(
+                    {
+                        "pattern": result.get(
+                            "pattern",
+                            "Unknown",
+                        ),
+
+                        "signal": result.get(
+                            "signal",
+                            "BUY",
+                        ),
+
+                        "strength": result.get(
+                            "strength",
+                            0,
+                        ),
+
+                        "confidence": confidence,
+
+                        "direction_priority": 3,
+
+                        "reason": reasons,
+                    }
+                )
+
+        except Exception as error:
+
+            print(
+                f"Bullish detector error "
+                f"in {detector.__name__}: {error}"
+            )
+
+    # ========================================================
+    # BEARISH
+    # ========================================================
+
+    for detector in bearish_patterns:
+
+        try:
+
+            result = detector(df)
+
+            if result:
+
+                confidence, reasons = calculate_confidence(
+                    df,
+                    result,
+                )
+
+                detected_patterns.append(
+                    {
+                        "pattern": result.get(
+                            "pattern",
+                            "Unknown",
+                        ),
+
+                        "signal": result.get(
+                            "signal",
+                            "SELL",
+                        ),
+
+                        "strength": result.get(
+                            "strength",
+                            0,
+                        ),
+
+                        "confidence": confidence,
+
+                        "direction_priority": 3,
+
+                        "reason": reasons,
+                    }
+                )
+
+        except Exception as error:
+
+            print(
+                f"Bearish detector error "
+                f"in {detector.__name__}: {error}"
+            )
+
+    # ========================================================
+    # NEUTRAL
+    # ========================================================
+
+    for detector in neutral_patterns:
 
         try:
 
@@ -146,63 +302,60 @@ def detect_pattern(df: pd.DataFrame):
 
                         "confidence": confidence,
 
+                        "direction_priority": 1,
+
                         "reason": reasons,
                     }
                 )
 
-        except Exception as e:
+        except Exception as error:
 
             print(
-                f"Pattern detector error "
-                f"in {detector.__name__}: {e}"
+                f"Neutral detector error "
+                f"in {detector.__name__}: {error}"
             )
 
-    # ============================================================
+    # ========================================================
     # NO PATTERN
-    # ============================================================
+    # ========================================================
 
     if not detected_patterns:
-
-        confidence, reasons = calculate_confidence(
-            df,
-            {
-                "pattern": "No Strong Pattern",
-                "signal": "HOLD",
-                "strength": 10,
-            },
-        )
 
         return {
             "pattern": "No Strong Pattern",
             "signal": "HOLD",
-            "confidence": confidence,
-            "reason": reasons,
+            "confidence": 50,
+            "reason": [
+                "No supported candlestick pattern "
+                "was detected on the latest candles.",
+                "Technical indicators are being used "
+                "instead of forcing a candlestick signal.",
+            ],
         }
 
-    # ============================================================
-    # SELECT STRONGEST PATTERN
+    # ========================================================
+    # SELECT BEST PATTERN
     #
     # Priority:
     # 1. Pattern strength
     # 2. Confidence
-    #
-    # This prevents the first detected pattern from
-    # automatically winning.
-    # ============================================================
+    # 3. Directional pattern over neutral pattern
+    # ========================================================
 
     detected_patterns.sort(
-        key=lambda x: (
-            x["strength"],
-            x["confidence"],
+        key=lambda item: (
+            item["strength"],
+            item["confidence"],
+            item["direction_priority"],
         ),
         reverse=True,
     )
 
     strongest = detected_patterns[0]
 
-    # ============================================================
-    # RETURN BEST PATTERN
-    # ============================================================
+    # ========================================================
+    # RETURN
+    # ========================================================
 
     return {
         "pattern": strongest["pattern"],

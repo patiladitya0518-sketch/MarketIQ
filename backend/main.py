@@ -9,7 +9,8 @@ from api.health import router as health_router
 from api.stock import router as stock_router
 from api.chart import router as chart_router
 from api.auth import router as auth_router
-from api.portfolio import router as portfolio_router  # NEW
+from api.portfolio import router as portfolio_router
+from api.backtest import router as backtest_router  # NEW
 
 
 app = FastAPI(
@@ -29,6 +30,7 @@ origins = [
     "https://market-iq-five-orpin.vercel.app",
 ]
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -46,4 +48,5 @@ app.include_router(health_router)
 app.include_router(stock_router)
 app.include_router(chart_router)
 app.include_router(auth_router)
-app.include_router(portfolio_router)  # NEW
+app.include_router(portfolio_router)
+app.include_router(backtest_router)  # NEW

@@ -11,35 +11,111 @@ def detect_market_structure(df: pd.DataFrame):
     - Lower High (LH)
     - Lower Low (LL)
 
-    Also determines the overall market structure.
+    Always returns a consistent response structure
+    so the frontend never receives undefined swing_counts.
     """
 
-    if df is None or df.empty or len(df) < 10:
+    # ============================================================
+    # DEFAULT RESPONSE
+    # ============================================================
+
+    default_response = {
+        "structure": "Neutral",
+        "trend": "NEUTRAL",
+        "signal": "HOLD",
+        "confidence": 0,
+
+        "swing_counts": {
+            "higher_high": 0,
+            "higher_low": 0,
+            "lower_high": 0,
+            "lower_low": 0,
+        },
+
+        "swings": [],
+
+        "reasons": [
+            "Not enough historical data",
+        ],
+    }
+
+    # ============================================================
+    # VALIDATE DATA
+    # ============================================================
+
+    if df is None or df.empty:
+        return default_response
+
+    if len(df) < 10:
+        return default_response
+
+    # ============================================================
+    # CHECK REQUIRED COLUMNS
+    # ============================================================
+
+    required_columns = [
+        "High",
+        "Low",
+    ]
+
+    for column in required_columns:
+
+        if column not in df.columns:
+            return {
+                **default_response,
+                "reasons": [
+                    f"Missing required column: {column}"
+                ],
+            }
+
+    # ============================================================
+    # COPY RECENT DATA
+    # ============================================================
+
+    try:
+        data = df.copy().tail(30)
+
+        data["High"] = pd.to_numeric(
+            data["High"],
+            errors="coerce",
+        )
+
+        data["Low"] = pd.to_numeric(
+            data["Low"],
+            errors="coerce",
+        )
+
+        data = data.dropna(
+            subset=[
+                "High",
+                "Low",
+            ]
+        )
+
+    except Exception as e:
+
         return {
-            "structure": "Neutral",
-            "trend": "NEUTRAL",
-            "signal": "HOLD",
-            "confidence": 0,
-            "swings": [],
+            **default_response,
             "reasons": [
-                "Not enough historical data"
+                f"Unable to process market data: {str(e)}"
             ],
         }
 
-    # ------------------------------------------------------------
-    # Use recent candles
-    # ------------------------------------------------------------
+    if len(data) < 10:
+        return default_response
 
-    data = df.copy().tail(30)
+    # ============================================================
+    # HIGH / LOW SERIES
+    # ============================================================
 
     highs = data["High"].astype(float)
     lows = data["Low"].astype(float)
 
     swing_points = []
 
-    # ------------------------------------------------------------
-    # Detect simple swing highs / lows
-    # ------------------------------------------------------------
+    # ============================================================
+    # DETECT SWING POINTS
+    # ============================================================
 
     for i in range(1, len(data) - 1):
 
@@ -51,31 +127,49 @@ def detect_market_structure(df: pd.DataFrame):
         current_low = lows.iloc[i]
         next_low = lows.iloc[i + 1]
 
+        # --------------------------------------------------------
         # Swing High
+        # --------------------------------------------------------
+
         if (
             current_high > previous_high
             and current_high > next_high
         ):
-            swing_points.append({
-                "type": "HIGH",
-                "price": round(current_high, 2),
-                "position": i,
-            })
 
+            swing_points.append(
+                {
+                    "type": "HIGH",
+                    "price": round(
+                        float(current_high),
+                        2,
+                    ),
+                    "position": i,
+                }
+            )
+
+        # --------------------------------------------------------
         # Swing Low
+        # --------------------------------------------------------
+
         if (
             current_low < previous_low
             and current_low < next_low
         ):
-            swing_points.append({
-                "type": "LOW",
-                "price": round(current_low, 2),
-                "position": i,
-            })
 
-    # ------------------------------------------------------------
-    # Classify swing structure
-    # ------------------------------------------------------------
+            swing_points.append(
+                {
+                    "type": "LOW",
+                    "price": round(
+                        float(current_low),
+                        2,
+                    ),
+                    "position": i,
+                }
+            )
+
+    # ============================================================
+    # SEPARATE HIGH / LOW SWINGS
+    # ============================================================
 
     highs_list = [
         point
@@ -89,48 +183,62 @@ def detect_market_structure(df: pd.DataFrame):
         if point["type"] == "LOW"
     ]
 
-    classifications = []
+    # ============================================================
+    # COUNTERS
+    # ============================================================
 
-    # Higher High / Lower High
+    hh_count = 0
+    hl_count = 0
+    lh_count = 0
+    ll_count = 0
+
+    # ============================================================
+    # CLASSIFY HIGH SWINGS
+    # ============================================================
+
     for i in range(1, len(highs_list)):
 
         previous = highs_list[i - 1]["price"]
         current = highs_list[i]["price"]
 
         if current > previous:
-            classifications.append("HH")
+            hh_count += 1
 
         elif current < previous:
-            classifications.append("LH")
+            lh_count += 1
 
-    # Higher Low / Lower Low
+    # ============================================================
+    # CLASSIFY LOW SWINGS
+    # ============================================================
+
     for i in range(1, len(lows_list)):
 
         previous = lows_list[i - 1]["price"]
         current = lows_list[i]["price"]
 
         if current > previous:
-            classifications.append("HL")
+            hl_count += 1
 
         elif current < previous:
-            classifications.append("LL")
+            ll_count += 1
 
-    # ------------------------------------------------------------
-    # Count structure
-    # ------------------------------------------------------------
+    # ============================================================
+    # BULLISH / BEARISH POINTS
+    # ============================================================
 
-    hh_count = classifications.count("HH")
-    hl_count = classifications.count("HL")
+    bullish_points = (
+        hh_count
+        + hl_count
+    )
 
-    lh_count = classifications.count("LH")
-    ll_count = classifications.count("LL")
+    bearish_points = (
+        lh_count
+        + ll_count
+    )
 
-    bullish_points = hh_count + hl_count
-    bearish_points = lh_count + ll_count
-
-    # ------------------------------------------------------------
-    # Determine overall structure
-    # ------------------------------------------------------------
+    # ============================================================
+    # DETERMINE STRUCTURE
+    # ============================================================
 
     if bullish_points >= bearish_points + 2:
 
@@ -150,20 +258,24 @@ def detect_market_structure(df: pd.DataFrame):
         trend = "NEUTRAL"
         signal = "HOLD"
 
-    # ------------------------------------------------------------
-    # Confidence
-    # ------------------------------------------------------------
+    # ============================================================
+    # CONFIDENCE
+    # ============================================================
 
     total_points = (
-        bullish_points + bearish_points
+        bullish_points
+        + bearish_points
     )
 
     if total_points == 0:
+
         confidence = 40
 
     else:
+
         difference = abs(
-            bullish_points - bearish_points
+            bullish_points
+            - bearish_points
         )
 
         confidence = min(
@@ -171,63 +283,88 @@ def detect_market_structure(df: pd.DataFrame):
             90,
         )
 
-    # ------------------------------------------------------------
-    # Reasons
-    # ------------------------------------------------------------
+    # ============================================================
+    # REASONS
+    # ============================================================
 
     reasons = []
 
     if hh_count > 0:
+
         reasons.append(
             f"{hh_count} Higher High structure(s) detected"
         )
 
     if hl_count > 0:
+
         reasons.append(
             f"{hl_count} Higher Low structure(s) detected"
         )
 
     if lh_count > 0:
+
         reasons.append(
             f"{lh_count} Lower High structure(s) detected"
         )
 
     if ll_count > 0:
+
         reasons.append(
             f"{ll_count} Lower Low structure(s) detected"
         )
 
+    if not reasons:
+
+        reasons.append(
+            "No significant swing structure detected"
+        )
+
     if structure == "Bullish":
+
         reasons.append(
             "Market structure is bullish"
         )
 
     elif structure == "Bearish":
+
         reasons.append(
             "Market structure is bearish"
         )
 
     else:
+
         reasons.append(
             "Market structure is mixed"
         )
 
-    # ------------------------------------------------------------
-    # Return
-    # ------------------------------------------------------------
+    # ============================================================
+    # FINAL RESPONSE
+    # ============================================================
 
     return {
+
         "structure": structure,
+
         "trend": trend,
+
         "signal": signal,
+
         "confidence": confidence,
 
+        # IMPORTANT:
+        # Always return this object.
         "swing_counts": {
+
             "higher_high": hh_count,
+
             "higher_low": hl_count,
+
             "lower_high": lh_count,
+
             "lower_low": ll_count,
         },
+
+        "swings": swing_points,
 
         "reasons": reasons,
     }

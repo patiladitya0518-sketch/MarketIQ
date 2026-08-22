@@ -1,7 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
 import api from "@/lib/api";
+
+// ============================================================
+// RECOMMENDATION SIGNAL
+// ============================================================
+
+export type RecommendationSignal =
+  | "BUY"
+  | "SELL"
+  | "HOLD";
 
 // ============================================================
 // CANDLESTICK PATTERN
@@ -18,19 +33,19 @@ export interface Pattern {
 // MARKET STRUCTURE
 // ============================================================
 
+export interface SwingCounts {
+  higher_high: number;
+  higher_low: number;
+  lower_high: number;
+  lower_low: number;
+}
+
 export interface MarketStructure {
   structure: string;
   trend: string;
   signal: string;
   confidence: number;
-
-  swing_counts: {
-    higher_high: number;
-    higher_low: number;
-    lower_high: number;
-    lower_low: number;
-  };
-
+  swing_counts: SwingCounts;
   reasons: string[];
 }
 
@@ -41,6 +56,36 @@ export interface MarketStructure {
 export interface SupportResistance {
   support: number[];
   resistance: number[];
+}
+
+// ============================================================
+// SMART MONEY CONCEPTS
+// ============================================================
+
+export interface SMC {
+  signal?: string;
+  confidence?: number;
+
+  trend?: string;
+  market_bias?: string;
+
+  structure?: string;
+
+  bullish?: boolean;
+  bearish?: boolean;
+
+  order_blocks?: unknown[];
+  fair_value_gaps?: unknown[];
+
+  liquidity?: unknown[];
+  liquidity_zones?: unknown[];
+
+  bos?: unknown;
+  choch?: unknown;
+
+  reasons?: string[];
+
+  [key: string]: unknown;
 }
 
 // ============================================================
@@ -70,8 +115,10 @@ export interface SupportResistanceAnalysis {
 // ============================================================
 
 export interface Recommendation {
-  recommendation: string;
+  recommendation: RecommendationSignal;
+
   confidence: number;
+
   score: number;
 
   reasons: string[];
@@ -85,6 +132,8 @@ export interface Recommendation {
   support_resistance_analysis:
     | SupportResistanceAnalysis
     | null;
+
+  [key: string]: unknown;
 }
 
 // ============================================================
@@ -92,11 +141,19 @@ export interface Recommendation {
 // ============================================================
 
 export interface Indicators {
+  Close?: number;
+
   RSI: number;
   EMA20: number;
   EMA50: number;
+
   MACD: number;
   MACD_SIGNAL: number;
+
+  MACD_BULLISH_CROSSOVER?: boolean;
+  MACD_BEARISH_CROSSOVER?: boolean;
+
+  [key: string]: number | boolean | undefined;
 }
 
 // ============================================================
@@ -106,7 +163,13 @@ export interface Indicators {
 export interface StockResponse {
   success: boolean;
 
+  query?: string;
+
   symbol: string;
+
+  yahoo_symbol?: string;
+
+  exchange?: string;
 
   price: number;
 
@@ -119,6 +182,10 @@ export interface StockResponse {
   market_structure: MarketStructure;
 
   support_resistance: SupportResistance;
+
+  smc?: SMC;
+
+  message?: string;
 }
 
 // ============================================================
@@ -130,7 +197,7 @@ export default function useStock(symbol: string) {
     useState<StockResponse | null>(null);
 
   const [loading, setLoading] =
-    useState(true);
+    useState(false);
 
   const [refreshing, setRefreshing] =
     useState(false);
@@ -142,19 +209,37 @@ export default function useStock(symbol: string) {
     useState<string | null>(null);
 
   // ============================================================
-  // FETCH STOCK DATA
+  // REQUEST ID
+  // Prevent old requests from overwriting newer requests
+  // ============================================================
+
+  const requestIdRef = useRef(0);
+
+  // ============================================================
+  // FETCH STOCK
   // ============================================================
 
   const fetchStock = useCallback(
     async (backgroundRefresh = false) => {
-      if (!symbol?.trim()) {
+      const cleanSymbol =
+        symbol?.trim().toUpperCase();
+
+      if (!cleanSymbol) {
+        setData(null);
+        setError(null);
+        setLoading(false);
+        setRefreshing(false);
+
         return;
       }
 
+      const requestId =
+        ++requestIdRef.current;
+
       try {
-        // ------------------------------------------------------
-        // Loading states
-        // ------------------------------------------------------
+        // --------------------------------------------------------
+        // LOADING STATE
+        // --------------------------------------------------------
 
         if (backgroundRefresh) {
           setRefreshing(true);
@@ -164,53 +249,81 @@ export default function useStock(symbol: string) {
 
         setError(null);
 
-        // ------------------------------------------------------
+        // --------------------------------------------------------
         // API REQUEST
-        // ------------------------------------------------------
+        // --------------------------------------------------------
 
-        const cleanSymbol =
-          symbol.trim().toUpperCase();
-
-        const res = await api.get(
-          `/stock/${cleanSymbol}`
+        const response = await api.get(
+          `/stock/${encodeURIComponent(
+            cleanSymbol
+          )}`
         );
 
-        // ------------------------------------------------------
-        // SUCCESS
-        // ------------------------------------------------------
+        const result =
+          response?.data;
 
-        if (res.data?.success) {
-          setData(res.data);
+        // --------------------------------------------------------
+        // IGNORE OLD REQUEST
+        // --------------------------------------------------------
+
+        if (
+          requestId !==
+          requestIdRef.current
+        ) {
+          return;
+        }
+
+        // --------------------------------------------------------
+        // API SUCCESS
+        // --------------------------------------------------------
+
+        if (
+          result?.success === true
+        ) {
+          setData(
+            result as StockResponse
+          );
 
           setLastUpdated(
             new Date()
           );
 
+          setError(null);
+
           return;
         }
 
-        // ------------------------------------------------------
+        // --------------------------------------------------------
         // API FAILURE
-        // ------------------------------------------------------
+        // --------------------------------------------------------
 
         const message =
-          res.data?.message ||
-          "Unable to analyse this stock.";
+          result?.message ||
+          `Unable to analyse ${cleanSymbol}.`;
 
-        console.warn(
-          "Stock API error:",
-          message
+        setError(
+          typeof message === "string"
+            ? message
+            : `Unable to analyse ${cleanSymbol}.`
         );
 
-        setError(message);
-
-        setData(null);
+        // Don't immediately destroy existing data
+        // during a background refresh.
+        if (!backgroundRefresh) {
+          setData(null);
+        }
 
       } catch (error: any) {
+        // --------------------------------------------------------
+        // IGNORE OLD REQUEST
+        // --------------------------------------------------------
 
-        // ------------------------------------------------------
-        // ERROR HANDLING
-        // ------------------------------------------------------
+        if (
+          requestId !==
+          requestIdRef.current
+        ) {
+          return;
+        }
 
         console.error(
           "Failed to fetch stock:",
@@ -219,11 +332,108 @@ export default function useStock(symbol: string) {
             error
         );
 
-        const message =
-          error?.response?.data?.message ||
-          error?.response?.data?.detail ||
-          error?.message ||
+        // --------------------------------------------------------
+        // DEFAULT ERROR
+        // --------------------------------------------------------
+
+        let message =
           "Failed to fetch stock data.";
+
+        // --------------------------------------------------------
+        // BACKEND ERROR MESSAGE
+        // --------------------------------------------------------
+
+        if (
+          typeof error?.response?.data
+            ?.message === "string"
+        ) {
+          message =
+            error.response.data.message;
+        }
+
+        // --------------------------------------------------------
+        // FASTAPI DETAIL
+        // --------------------------------------------------------
+
+        else if (
+          typeof error?.response?.data
+            ?.detail === "string"
+        ) {
+          message =
+            error.response.data.detail;
+        }
+
+        // --------------------------------------------------------
+        // AXIOS ERROR MESSAGE
+        // --------------------------------------------------------
+
+        else if (
+          typeof error?.message ===
+          "string"
+        ) {
+          message =
+            error.message;
+        }
+
+        // --------------------------------------------------------
+        // NETWORK ERROR
+        // --------------------------------------------------------
+
+        if (
+          error?.message ===
+          "Network Error"
+        ) {
+          message =
+            "Unable to connect to MarketIQ backend. Make sure the FastAPI server is running.";
+        }
+
+        // --------------------------------------------------------
+        // 400 ERROR
+        // --------------------------------------------------------
+
+        if (
+          error?.response?.status ===
+          400
+        ) {
+          message =
+            "Invalid stock symbol. Please enter a valid Indian stock.";
+        }
+
+        // --------------------------------------------------------
+        // 404 ERROR
+        // --------------------------------------------------------
+
+        if (
+          error?.response?.status ===
+          404
+        ) {
+          message =
+            `Stock '${cleanSymbol}' was not found.`;
+        }
+
+        // --------------------------------------------------------
+        // 429 ERROR
+        // --------------------------------------------------------
+
+        if (
+          error?.response?.status ===
+          429
+        ) {
+          message =
+            "Market data provider rate limit reached. Please try again shortly.";
+        }
+
+        // --------------------------------------------------------
+        // 500+ ERROR
+        // --------------------------------------------------------
+
+        if (
+          error?.response?.status >=
+          500
+        ) {
+          message =
+            "MarketIQ backend encountered an error while analysing this stock.";
+        }
 
         setError(
           typeof message === "string"
@@ -231,56 +441,101 @@ export default function useStock(symbol: string) {
             : "Failed to fetch stock data."
         );
 
+        // Keep previous data during
+        // background refresh.
+        if (!backgroundRefresh) {
+          setData(null);
+        }
+
       } finally {
+        // --------------------------------------------------------
+        // ONLY UPDATE STATE FOR CURRENT REQUEST
+        // --------------------------------------------------------
 
-        setLoading(false);
-
-        setRefreshing(false);
+        if (
+          requestId ===
+          requestIdRef.current
+        ) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [symbol]
   );
 
   // ============================================================
-  // INITIAL LOAD
+  // LOAD STOCK WHEN SYMBOL CHANGES
   // ============================================================
 
   useEffect(() => {
-    if (!symbol?.trim()) {
+    const cleanSymbol =
+      symbol?.trim();
+
+    // ----------------------------------------------------------
+    // EMPTY SYMBOL
+    // ----------------------------------------------------------
+
+    if (!cleanSymbol) {
+      requestIdRef.current++;
+
+      setData(null);
+      setError(null);
+      setLoading(false);
+      setRefreshing(false);
+      setLastUpdated(null);
+
       return;
     }
 
-    // Reset old stock while loading new stock
-    setLoading(true);
+    // ----------------------------------------------------------
+    // RESET
+    // ----------------------------------------------------------
+
+    setData(null);
     setError(null);
+    setLastUpdated(null);
+    setLoading(true);
+
+    // ----------------------------------------------------------
+    // INITIAL REQUEST
+    // ----------------------------------------------------------
 
     fetchStock(false);
 
-    // ============================================================
-    // AUTOMATIC REFRESH
-    // ============================================================
+    // ----------------------------------------------------------
+    // AUTO REFRESH
+    // Every 60 seconds
+    // ----------------------------------------------------------
 
-    const interval = setInterval(() => {
-      fetchStock(true);
-    }, 60000);
+    const interval =
+      setInterval(() => {
+        fetchStock(true);
+      }, 60 * 1000);
 
-    // ============================================================
+    // ----------------------------------------------------------
     // CLEANUP
-    // ============================================================
+    // ----------------------------------------------------------
 
     return () => {
       clearInterval(interval);
+
+      requestIdRef.current++;
     };
 
-  }, [symbol, fetchStock]);
+  }, [
+    symbol,
+    fetchStock,
+  ]);
 
   // ============================================================
   // MANUAL REFRESH
   // ============================================================
 
-  const refreshStock = useCallback(() => {
-    return fetchStock(true);
-  }, [fetchStock]);
+  const refreshStock =
+    useCallback(() => {
+      return fetchStock(true);
+    }, [fetchStock]);
 
   // ============================================================
   // RETURN
