@@ -8,14 +8,7 @@ from services.market_structure_service import detect_market_structure
 from services.support_resistance_service import (
     calculate_support_resistance,
 )
-from services.recommendation_service import (
-    generate_recommendation,
-)
-
-# ============================================================
-# SMART MONEY CONCEPTS
-# ============================================================
-
+from services.recommendation_service import generate_recommendation
 from services.smc_service import analyze_smc
 
 
@@ -25,12 +18,24 @@ from services.smc_service import analyze_smc
 
 INITIAL_CAPITAL = 100000.0
 
+# Limit expensive historical analysis to recent candles.
+# Indicators are still calculated using the complete dataset.
+PATTERN_LOOKBACK = 30
+STRUCTURE_LOOKBACK = 60
+SUPPORT_RESISTANCE_LOOKBACK = 100
+SMC_LOOKBACK = 100
+
+MINIMUM_CANDLES = 60
+
 
 # ============================================================
 # HELPERS
 # ============================================================
 
-def safe_float(value: Any, default: float = 0.0) -> float:
+def safe_float(
+    value: Any,
+    default: float = 0.0,
+) -> float:
     """
     Safely convert a value to float.
 
@@ -55,9 +60,7 @@ def safe_float(value: Any, default: float = 0.0) -> float:
 
 def safe_bool(value: Any) -> bool:
     """
-    Safely convert indicator crossover values to bool.
-
-    Prevents NaN values from becoming True.
+    Safely convert crossover values to bool.
     """
 
     try:
@@ -76,7 +79,7 @@ def safe_bool(value: Any) -> bool:
 def format_date(value: Any) -> str:
     """
     Convert pandas Timestamp/date values
-    into a consistent YYYY-MM-DD string.
+    into YYYY-MM-DD.
     """
 
     try:
@@ -116,32 +119,22 @@ def run_backtest(
 
     Trading simulation:
 
-    - BUY  -> next candle open to next candle close
-    - SELL -> next candle open to next candle close
-    - HOLD -> no trade
-    - Initial capital = ₹1,00,000
+    BUY:
+        Next candle OPEN -> next candle CLOSE
 
-    Calculates:
+    SELL:
+        Next candle OPEN -> next candle CLOSE
 
-    - Prediction accuracy
-    - BUY / SELL / HOLD signals
-    - Total trades
-    - Winning trades
-    - Losing trades
-    - Win rate
-    - Total return
-    - Final capital
-    - Maximum drawdown
-    - Average trade return
-    - Best trade
-    - Worst trade
-    - Equity curve
-    - Complete trade history
+    HOLD:
+        No trade
+
+    Initial capital:
+        ₹1,00,000
     """
 
-    # ============================================================
+    # ========================================================
     # NORMALIZE SYMBOL
-    # ============================================================
+    # ========================================================
 
     symbol = str(symbol).upper().strip()
 
@@ -151,11 +144,22 @@ def run_backtest(
             "message": "Stock symbol is required.",
         }
 
-    # ============================================================
+    print(
+        f"[MarketIQ Backtest] Starting "
+        f"{symbol} | period={period}"
+    )
+
+    # ========================================================
     # GET HISTORICAL DATA
-    # ============================================================
+    # ========================================================
 
     try:
+
+        print(
+            f"[MarketIQ Backtest] Fetching history: "
+            f"{symbol}"
+        )
+
         df = get_stock_history(
             symbol,
             period=period,
@@ -163,15 +167,22 @@ def run_backtest(
         )
 
     except Exception as exc:
+
+        print(
+            f"[MarketIQ Backtest] History error: "
+            f"{exc}"
+        )
+
         return {
             "success": False,
             "message": (
-                f"Unable to load historical data for "
-                f"{symbol}: {str(exc)}"
+                f"Unable to load historical data "
+                f"for {symbol}: {str(exc)}"
             ),
         }
 
     if df is None or df.empty:
+
         return {
             "success": False,
             "message": (
@@ -179,25 +190,45 @@ def run_backtest(
             ),
         }
 
-    # ============================================================
+    print(
+        f"[MarketIQ Backtest] History loaded: "
+        f"{len(df)} candles"
+    )
+
+    # ========================================================
     # CALCULATE INDICATORS
-    # ============================================================
+    #
+    # IMPORTANT:
+    # Indicators are calculated ONCE using the complete
+    # historical dataset.
+    # ========================================================
 
     try:
+
+        print(
+            "[MarketIQ Backtest] Calculating indicators..."
+        )
+
         df = calculate_indicators(df)
 
     except Exception as exc:
+
+        print(
+            f"[MarketIQ Backtest] Indicator error: "
+            f"{exc}"
+        )
+
         return {
             "success": False,
             "message": (
-                f"Unable to calculate indicators for "
-                f"{symbol}: {str(exc)}"
+                f"Unable to calculate indicators "
+                f"for {symbol}: {str(exc)}"
             ),
         }
 
-    # ============================================================
+    # ========================================================
     # REQUIRED INDICATORS
-    # ============================================================
+    # ========================================================
 
     required_columns = [
         "RSI",
@@ -214,6 +245,7 @@ def run_backtest(
     ]
 
     if missing_columns:
+
         return {
             "success": False,
             "message": (
@@ -222,71 +254,66 @@ def run_backtest(
             ),
         }
 
-    # ============================================================
+    # ========================================================
     # REMOVE INVALID INDICATOR ROWS
-    # ============================================================
+    # ========================================================
 
     df = df.dropna(
         subset=required_columns
     ).copy()
 
-    # ============================================================
-    # MINIMUM DATA VALIDATION
-    # ============================================================
+    if len(df) < MINIMUM_CANDLES:
 
-    if len(df) < 60:
         return {
             "success": False,
             "message": (
-                "Not enough historical data for backtesting. "
-                "At least 60 valid candles are required."
+                "Not enough historical data for "
+                "backtesting. At least 60 valid "
+                "candles are required."
             ),
         }
 
-    # ============================================================
+    print(
+        f"[MarketIQ Backtest] Valid candles: "
+        f"{len(df)}"
+    )
+
+    # ========================================================
     # BACKTEST STATE
-    # ============================================================
+    # ========================================================
 
     results = []
-
     trades = []
-
     equity_curve = []
 
     capital = INITIAL_CAPITAL
-
     peak_capital = INITIAL_CAPITAL
-
     max_drawdown = 0.0
 
-    # ============================================================
-    # WALK THROUGH HISTORICAL DATA
-    # ============================================================
+    total_iterations = len(df) - 51
+    completed_iterations = 0
 
-    for i in range(50, len(df) - 1):
+    # ========================================================
+    # WALK THROUGH HISTORICAL DATA
+    # ========================================================
+
+    for i in range(
+        50,
+        len(df) - 1,
+    ):
 
         try:
-            # ----------------------------------------------------
-            # ONLY DATA AVAILABLE UP TO CURRENT CANDLE
-            # ----------------------------------------------------
 
-            historical_df = df.iloc[: i + 1].copy()
+            # ====================================================
+            # CURRENT + NEXT CANDLE
+            # ====================================================
 
             current_candle = df.iloc[i]
-
             next_candle = df.iloc[i + 1]
-
-            # ----------------------------------------------------
-            # CURRENT CANDLE
-            # ----------------------------------------------------
 
             current_close = safe_float(
                 current_candle["Close"]
             )
-
-            # ----------------------------------------------------
-            # NEXT CANDLE
-            # ----------------------------------------------------
 
             next_open = safe_float(
                 next_candle["Open"]
@@ -296,23 +323,67 @@ def run_backtest(
                 next_candle["Close"]
             )
 
-            if current_close <= 0 or next_open <= 0:
+            if (
+                current_close <= 0
+                or next_open <= 0
+            ):
                 continue
+
+            # ====================================================
+            # HISTORICAL DATA AVAILABLE AT THIS POINT
+            #
+            # IMPORTANT:
+            # We NEVER include df.iloc[i + 1] in analysis.
+            # Therefore there is no future-data leakage.
+            # ====================================================
+
+            historical_df = df.iloc[
+                : i + 1
+            ]
+
+            # ====================================================
+            # OPTIMIZED ANALYSIS WINDOWS
+            #
+            # Instead of passing the complete historical
+            # dataframe to every expensive service, use the
+            # amount of history actually needed by that
+            # analysis.
+            # ====================================================
+
+            pattern_df = historical_df.tail(
+                PATTERN_LOOKBACK
+            )
+
+            structure_df = historical_df.tail(
+                STRUCTURE_LOOKBACK
+            )
+
+            support_resistance_df = (
+                historical_df.tail(
+                    SUPPORT_RESISTANCE_LOOKBACK
+                )
+            )
+
+            smc_df = historical_df.tail(
+                SMC_LOOKBACK
+            )
 
             # ====================================================
             # CANDLESTICK PATTERN
             # ====================================================
 
             pattern = detect_pattern(
-                historical_df
+                pattern_df
             )
 
             # ====================================================
             # MARKET STRUCTURE
             # ====================================================
 
-            market_structure = detect_market_structure(
-                historical_df
+            market_structure = (
+                detect_market_structure(
+                    structure_df
+                )
             )
 
             # ====================================================
@@ -321,27 +392,25 @@ def run_backtest(
 
             support_resistance = (
                 calculate_support_resistance(
-                    historical_df
+                    support_resistance_df
                 )
             )
 
             # ====================================================
             # SMART MONEY CONCEPTS
             #
-            # IMPORTANT:
             # Only historical candles are passed.
-            # Future candles are never used here.
             # ====================================================
 
             smc = analyze_smc(
-                historical_df
+                smc_df
             )
 
             # ====================================================
             # CURRENT INDICATORS
             # ====================================================
 
-            latest = historical_df.iloc[-1]
+            latest = current_candle
 
             indicators = {
                 "Close": safe_float(
@@ -388,15 +457,17 @@ def run_backtest(
             # ====================================================
             # MARKETIQ RECOMMENDATION
             #
-            # SAME ENGINE AS LIVE ANALYSIS
+            # SAME ENGINE USED BY LIVE ANALYSIS
             # ====================================================
 
-            recommendation = generate_recommendation(
-                indicators,
-                pattern,
-                market_structure,
-                support_resistance,
-                smc,
+            recommendation = (
+                generate_recommendation(
+                    indicators,
+                    pattern,
+                    market_structure,
+                    support_resistance,
+                    smc,
+                )
             )
 
             if not isinstance(
@@ -405,9 +476,9 @@ def run_backtest(
             ):
                 recommendation = {}
 
-            # ----------------------------------------------------
+            # ====================================================
             # NORMALIZE RECOMMENDATION
-            # ----------------------------------------------------
+            # ====================================================
 
             action = str(
                 recommendation.get(
@@ -437,7 +508,6 @@ def run_backtest(
                 )
             )
 
-            # Keep confidence within valid range.
             confidence = max(
                 0.0,
                 min(
@@ -481,7 +551,7 @@ def run_backtest(
                 )
 
             # ====================================================
-            # BASE RESULT
+            # DATES
             # ====================================================
 
             signal_date = format_date(
@@ -491,6 +561,10 @@ def run_backtest(
             next_date = format_date(
                 next_candle.name
             )
+
+            # ====================================================
+            # BASE RESULT
+            # ====================================================
 
             result = {
                 "date": signal_date,
@@ -538,7 +612,6 @@ def run_backtest(
             }:
 
                 entry_price = next_open
-
                 exit_price = next_close
 
                 # ------------------------------------------------
@@ -603,7 +676,7 @@ def run_backtest(
                     trade_result = "FLAT"
 
                 # ------------------------------------------------
-                # UPDATE PEAK CAPITAL
+                # UPDATE PEAK
                 # ------------------------------------------------
 
                 if capital > peak_capital:
@@ -611,7 +684,7 @@ def run_backtest(
                     peak_capital = capital
 
                 # ------------------------------------------------
-                # CURRENT DRAWDOWN
+                # DRAWDOWN
                 # ------------------------------------------------
 
                 if peak_capital > 0:
@@ -764,10 +837,11 @@ def run_backtest(
                 {
                     "date": next_date,
 
-                    "capital": round(
-                        capital,
-                        2,
-                    ),
+                    "capital":
+                        round(
+                            capital,
+                            2,
+                        ),
                 }
             )
 
@@ -779,16 +853,38 @@ def run_backtest(
                 result
             )
 
+            completed_iterations += 1
+
+            # ====================================================
+            # PROGRESS LOG
+            # ====================================================
+
+            if (
+                completed_iterations % 25 == 0
+                or i == len(df) - 2
+            ):
+
+                progress = (
+                    completed_iterations
+                    / max(
+                        total_iterations,
+                        1,
+                    )
+                ) * 100
+
+                print(
+                    f"[MarketIQ Backtest] "
+                    f"{symbol} progress: "
+                    f"{progress:.0f}% "
+                    f"({completed_iterations}/"
+                    f"{total_iterations})"
+                )
+
         except Exception as exc:
-            # ----------------------------------------------------
-            # IMPORTANT:
-            # One problematic historical candle should not
-            # destroy the complete backtest.
-            # ----------------------------------------------------
 
             print(
-                f"Backtest warning for "
-                f"{symbol} at index {i}: {exc}"
+                f"[MarketIQ Backtest] "
+                f"Warning at index {i}: {exc}"
             )
 
             continue
@@ -912,10 +1008,13 @@ def run_backtest(
 
     if total_trades > 0:
 
-        average_trade_return = sum(
-            trade["return_percent"]
-            for trade in trades
-        ) / total_trades
+        average_trade_return = (
+            sum(
+                trade["return_percent"]
+                for trade in trades
+            )
+            / total_trades
+        )
 
     else:
 
@@ -942,8 +1041,20 @@ def run_backtest(
     else:
 
         best_trade = None
-
         worst_trade = None
+
+    # ============================================================
+    # FINAL LOG
+    # ============================================================
+
+    print(
+        f"[MarketIQ Backtest] COMPLETE | "
+        f"{symbol} | "
+        f"predictions={total_predictions} | "
+        f"trades={total_trades} | "
+        f"accuracy={accuracy:.2f}% | "
+        f"final_capital={final_capital:.2f}"
+    )
 
     # ============================================================
     # FINAL RESPONSE
