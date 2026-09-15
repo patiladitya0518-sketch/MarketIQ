@@ -315,7 +315,43 @@ def resolve_symbol(symbol: str):
         return None
 
     # --------------------------------------------------------
-    # STEP 1 — Direct NSE/BSE candidates
+    # STEP 1 — TRUST EXPLICIT NSE/BSE MAPPING
+    #
+    # For manually mapped Indian stocks we already know the
+    # intended Yahoo symbol. Do NOT perform a preliminary
+    # Yahoo history request here because that request can fail
+    # independently of the actual historical-data download
+    # (for example due to temporary Yahoo/network restrictions).
+    # The real data availability check is performed by
+    # get_stock_history().
+    # --------------------------------------------------------
+
+    if query in COMPANY_SYMBOLS:
+
+        yahoo_symbol = COMPANY_SYMBOLS[query]
+
+        print(
+            f"[MarketIQ] Mapping resolved: "
+            f"{query} -> {yahoo_symbol}"
+        )
+
+        return yahoo_symbol
+
+    # --------------------------------------------------------
+    # STEP 2 — Explicit Yahoo NSE/BSE symbol
+    # --------------------------------------------------------
+
+    if query.endswith(".NS") or query.endswith(".BO"):
+
+        print(
+            f"[MarketIQ] Explicit Yahoo symbol resolved: "
+            f"{query}"
+        )
+
+        return query
+
+    # --------------------------------------------------------
+    # STEP 3 — Unknown ticker: verify NSE/BSE candidates
     # --------------------------------------------------------
 
     candidates = get_candidate_symbols(query)
@@ -332,7 +368,7 @@ def resolve_symbol(symbol: str):
             return yahoo_symbol
 
     # --------------------------------------------------------
-    # STEP 2 — Yahoo company search
+    # STEP 4 — Yahoo company search
     # --------------------------------------------------------
 
     searched_symbol = search_stock_symbol(query)
@@ -349,7 +385,7 @@ def resolve_symbol(symbol: str):
             return searched_symbol
 
     # --------------------------------------------------------
-    # STEP 3 — Not found
+    # STEP 5 — Not found
     # --------------------------------------------------------
 
     print(
