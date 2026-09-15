@@ -11,9 +11,86 @@ const api = axios.create({
     "Content-Type": "application/json",
   },
 
-  // Backtests can take longer than normal stock requests.
+  // Normal API requests should fail fast enough to give the user
+  // useful feedback. Long-running backtests override this timeout
+  // at the individual request level.
   timeout: 120000,
 });
+
+// ============================================================
+// USER-FRIENDLY API ERROR MESSAGE
+// ============================================================
+
+export function getApiErrorMessage(
+  error: unknown,
+  fallback = "Something went wrong. Please try again."
+): string {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    const data = error.response?.data;
+
+    // MarketIQ production error format.
+    if (typeof data?.error?.message === "string") {
+      return data.error.message;
+    }
+
+    // Existing FastAPI responses.
+    if (typeof data?.message === "string") {
+      return data.message;
+    }
+
+    if (typeof data?.detail === "string") {
+      return data.detail;
+    }
+
+    if (Array.isArray(data?.detail)) {
+      const messages = data.detail
+        .map((item: any) => {
+          if (typeof item === "string") return item;
+          return item?.msg || "Invalid request.";
+        })
+        .filter(Boolean);
+
+      if (messages.length > 0) {
+        return messages.join(", ");
+      }
+    }
+
+    if (status === 400) {
+      return "The request could not be completed. Please check your input.";
+    }
+
+    if (status === 404) {
+      return "The requested MarketIQ resource was not found.";
+    }
+
+    if (status === 422) {
+      return "Please check the entered values and try again.";
+    }
+
+    if (status === 429) {
+      return "Too many requests. Please wait a moment and try again.";
+    }
+
+    if (status && status >= 500) {
+      return "MarketIQ is temporarily unavailable. Please try again shortly.";
+    }
+
+    if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
+      return "The request took too long. Please try again.";
+    }
+
+    if (!error.response) {
+      return "Unable to connect to the MarketIQ server. Please check your connection.";
+    }
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}
 
 // ============================================================
 // REQUEST INTERCEPTOR
