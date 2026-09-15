@@ -1,6 +1,23 @@
-import yfinance as yf
-import pandas as pd
+import math
+import time
 from functools import lru_cache
+
+import pandas as pd
+import yfinance as yf
+
+
+# ============================================================
+# PRODUCTION DATA SETTINGS
+# ============================================================
+
+YAHOO_TIMEOUT_SECONDS = 10
+YAHOO_RETRIES = 2
+YAHOO_RETRY_DELAY_SECONDS = 1.0
+
+
+def _log(message: str):
+    """Render-friendly diagnostic logging."""
+    print(f"[MarketIQ] {message}", flush=True)
 
 
 # ============================================================
@@ -113,7 +130,7 @@ def check_symbol(yahoo_symbol: str) -> bool:
         history = ticker.history(
             period="5d",
             interval="1d",
-            timeout=10,
+            timeout=YAHOO_TIMEOUT_SECONDS,
         )
 
         return (
@@ -123,9 +140,8 @@ def check_symbol(yahoo_symbol: str) -> bool:
 
     except Exception as e:
 
-        print(
-            f"[MarketIQ] Symbol check failed "
-            f"for {yahoo_symbol}: {e}"
+        _log(
+            f"Symbol check failed for {yahoo_symbol}: {e!r}"
         )
 
         return False
@@ -157,9 +173,8 @@ def search_stock_symbol(query: str):
 
         symbol = COMPANY_SYMBOLS[query]
 
-        print(
-            f"[MarketIQ] Mapping resolved: "
-            f"{query} -> {symbol}"
+        _log(
+            f"Mapping resolved: {query} -> {symbol}"
         )
 
         return symbol
@@ -170,9 +185,8 @@ def search_stock_symbol(query: str):
 
     try:
 
-        print(
-            f"[MarketIQ] Automatic company search: "
-            f"{query}"
+        _log(
+            f"Automatic company search: {query}"
         )
 
         search = yf.Search(
@@ -186,9 +200,8 @@ def search_stock_symbol(query: str):
 
         if not quotes:
 
-            print(
-                f"[MarketIQ] No Yahoo results for: "
-                f"{query}"
+            _log(
+                f"No Yahoo results for: {query}"
             )
 
             return None
@@ -245,9 +258,8 @@ def search_stock_symbol(query: str):
 
         if not indian_results:
 
-            print(
-                f"[MarketIQ] No Indian equity found "
-                f"for: {query}"
+            _log(
+                f"No Indian equity found for: {query}"
             )
 
             return None
@@ -264,9 +276,8 @@ def search_stock_symbol(query: str):
 
             if yahoo_symbol.endswith(".NS"):
 
-                print(
-                    f"[MarketIQ] NSE search resolved: "
-                    f"{query} -> {yahoo_symbol}"
+                _log(
+                    f"NSE search resolved: {query} -> {yahoo_symbol}"
                 )
 
                 return yahoo_symbol
@@ -283,9 +294,8 @@ def search_stock_symbol(query: str):
 
             if yahoo_symbol.endswith(".BO"):
 
-                print(
-                    f"[MarketIQ] BSE search resolved: "
-                    f"{query} -> {yahoo_symbol}"
+                _log(
+                    f"BSE search resolved: {query} -> {yahoo_symbol}"
                 )
 
                 return yahoo_symbol
@@ -294,9 +304,8 @@ def search_stock_symbol(query: str):
 
     except Exception as e:
 
-        print(
-            f"[MarketIQ] Yahoo search failed "
-            f"for '{query}': {e}"
+        _log(
+            f"Yahoo search failed for '{query}': {e!r}"
         )
 
         return None
@@ -330,9 +339,8 @@ def resolve_symbol(symbol: str):
 
         yahoo_symbol = COMPANY_SYMBOLS[query]
 
-        print(
-            f"[MarketIQ] Mapping resolved: "
-            f"{query} -> {yahoo_symbol}"
+        _log(
+            f"Mapping resolved: {query} -> {yahoo_symbol}"
         )
 
         return yahoo_symbol
@@ -343,9 +351,8 @@ def resolve_symbol(symbol: str):
 
     if query.endswith(".NS") or query.endswith(".BO"):
 
-        print(
-            f"[MarketIQ] Explicit Yahoo symbol resolved: "
-            f"{query}"
+        _log(
+            f"Explicit Yahoo symbol resolved: {query}"
         )
 
         return query
@@ -360,9 +367,8 @@ def resolve_symbol(symbol: str):
 
         if check_symbol(yahoo_symbol):
 
-            print(
-                f"[MarketIQ] Direct symbol resolved: "
-                f"{query} -> {yahoo_symbol}"
+            _log(
+                f"Direct symbol resolved: {query} -> {yahoo_symbol}"
             )
 
             return yahoo_symbol
@@ -377,9 +383,8 @@ def resolve_symbol(symbol: str):
 
         if check_symbol(searched_symbol):
 
-            print(
-                f"[MarketIQ] Search symbol verified: "
-                f"{query} -> {searched_symbol}"
+            _log(
+                f"Search symbol verified: {query} -> {searched_symbol}"
             )
 
             return searched_symbol
@@ -388,9 +393,8 @@ def resolve_symbol(symbol: str):
     # STEP 5 — Not found
     # --------------------------------------------------------
 
-    print(
-        f"[MarketIQ] Could not resolve stock: "
-        f"{query}"
+    _log(
+        f"Could not resolve stock: {query}"
     )
 
     return None
@@ -419,113 +423,132 @@ def get_stock_history(
 
     if not yahoo_symbol:
 
-        print(
-            f"[MarketIQ] Unable to resolve: "
-            f"{symbol}"
+        _log(
+            f"Unable to resolve: {symbol}"
         )
 
         return pd.DataFrame()
 
-    try:
+    last_error = None
 
-        print(
-            f"[MarketIQ] Fetching history: "
-            f"{yahoo_symbol}"
-        )
+    for attempt in range(1, YAHOO_RETRIES + 1):
 
-        df = yf.download(
-            yahoo_symbol,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=False,
-            timeout=10,
-            threads=False,
-        )
+        try:
 
-        if df is None or df.empty:
-
-            print(
-                f"[MarketIQ] No historical data "
-                f"for {yahoo_symbol}"
+            _log(
+                f"Fetching history: {yahoo_symbol} "
+                f"(attempt {attempt}/{YAHOO_RETRIES})"
             )
 
-            return pd.DataFrame()
-
-        # ----------------------------------------------------
-        # Fix MultiIndex
-        # ----------------------------------------------------
-
-        if isinstance(
-            df.columns,
-            pd.MultiIndex,
-        ):
-
-            df.columns = (
-                df.columns
-                .get_level_values(0)
+            df = yf.download(
+                yahoo_symbol,
+                period=period,
+                interval=interval,
+                progress=False,
+                auto_adjust=False,
+                timeout=YAHOO_TIMEOUT_SECONDS,
+                threads=False,
             )
 
-        # ----------------------------------------------------
-        # Remove duplicates
-        # ----------------------------------------------------
+            if df is None or df.empty:
 
-        df = df.loc[
-            :,
-            ~df.columns.duplicated()
-        ]
+                _log(
+                    f"No historical data for {yahoo_symbol} "
+                    f"on attempt {attempt}"
+                )
 
-        # ----------------------------------------------------
-        # Required columns
-        # ----------------------------------------------------
+                if attempt < YAHOO_RETRIES:
+                    time.sleep(YAHOO_RETRY_DELAY_SECONDS)
+                    continue
 
-        required_columns = [
-            "Open",
-            "High",
-            "Low",
-            "Close",
-            "Volume",
-        ]
+                return pd.DataFrame()
 
-        for column in required_columns:
+            # ------------------------------------------------
+            # Fix MultiIndex
+            # ------------------------------------------------
 
-            if column not in df.columns:
+            if isinstance(
+                df.columns,
+                pd.MultiIndex,
+            ):
 
-                print(
-                    f"[MarketIQ] Missing column "
-                    f"{column} for "
-                    f"{yahoo_symbol}"
+                df.columns = (
+                    df.columns
+                    .get_level_values(0)
+                )
+
+            # ------------------------------------------------
+            # Remove duplicates
+            # ------------------------------------------------
+
+            df = df.loc[
+                :,
+                ~df.columns.duplicated()
+            ]
+
+            # ------------------------------------------------
+            # Required columns
+            # ------------------------------------------------
+
+            required_columns = [
+                "Open",
+                "High",
+                "Low",
+                "Close",
+                "Volume",
+            ]
+
+            missing_columns = [
+                column
+                for column in required_columns
+                if column not in df.columns
+            ]
+
+            if missing_columns:
+
+                _log(
+                    f"Missing columns for {yahoo_symbol}: "
+                    f"{', '.join(missing_columns)}"
                 )
 
                 return pd.DataFrame()
 
-        # ----------------------------------------------------
-        # Clean
-        # ----------------------------------------------------
+            # ------------------------------------------------
+            # Clean
+            # ------------------------------------------------
 
-        df = df.dropna(
-            subset=["Close"]
-        )
+            df = df.dropna(
+                subset=["Close"]
+            )
 
-        if df.empty:
-            return pd.DataFrame()
+            if df.empty:
+                return pd.DataFrame()
 
-        print(
-            f"[MarketIQ] History loaded: "
-            f"{yahoo_symbol} "
-            f"({len(df)} candles)"
-        )
+            _log(
+                f"History loaded: {yahoo_symbol} "
+                f"({len(df)} candles)"
+            )
 
-        return df
+            return df
 
-    except Exception as e:
+        except Exception as e:
 
-        print(
-            f"[MarketIQ] Historical data error "
-            f"for {yahoo_symbol}: {e}"
-        )
+            last_error = e
 
-        return pd.DataFrame()
+            _log(
+                f"Historical data error for {yahoo_symbol} "
+                f"on attempt {attempt}/{YAHOO_RETRIES}: {e!r}"
+            )
+
+            if attempt < YAHOO_RETRIES:
+                time.sleep(YAHOO_RETRY_DELAY_SECONDS)
+
+    _log(
+        f"Historical data unavailable for {yahoo_symbol}: "
+        f"{last_error!r}"
+    )
+
+    return pd.DataFrame()
 
 
 # ============================================================
@@ -541,9 +564,8 @@ def get_live_price(symbol: str):
 
     try:
 
-        print(
-            f"[MarketIQ] Fetching live price: "
-            f"{yahoo_symbol}"
+        _log(
+            f"Fetching live price: {yahoo_symbol}"
         )
 
         ticker = yf.Ticker(yahoo_symbol)
@@ -564,77 +586,84 @@ def get_live_price(symbol: str):
 
                 price = float(price)
 
-                if price > 0:
+                if math.isfinite(price) and price > 0:
 
-                    print(
-                        f"[MarketIQ] Live price: "
-                        f"{yahoo_symbol} "
-                        f"₹{price:.2f}"
+                    _log(
+                        f"Live price: {yahoo_symbol} ₹{price:.2f}"
                     )
 
                     return round(price, 2)
 
         except Exception as e:
 
-            print(
-                f"[MarketIQ] fast_info failed "
-                f"for {yahoo_symbol}: {e}"
+            _log(
+                f"fast_info failed for {yahoo_symbol}: {e!r}"
             )
 
         # ----------------------------------------------------
         # INTRADAY FALLBACK
         # ----------------------------------------------------
 
-        try:
+        for attempt in range(1, YAHOO_RETRIES + 1):
 
-            df = ticker.history(
-                period="1d",
-                interval="5m",
-                timeout=10,
-            )
+            try:
 
-            if (
-                df is not None
-                and not df.empty
-                and "Close" in df.columns
-            ):
-
-                closes = (
-                    df["Close"]
-                    .dropna()
+                _log(
+                    f"Fetching intraday fallback: {yahoo_symbol} "
+                    f"(attempt {attempt}/{YAHOO_RETRIES})"
                 )
 
-                if not closes.empty:
+                df = ticker.history(
+                    period="1d",
+                    interval="5m",
+                    timeout=YAHOO_TIMEOUT_SECONDS,
+                )
 
-                    price = float(
-                        closes.iloc[-1]
+                if (
+                    df is not None
+                    and not df.empty
+                    and "Close" in df.columns
+                ):
+
+                    closes = (
+                        df["Close"]
+                        .dropna()
                     )
 
-                    if price > 0:
+                    if not closes.empty:
 
-                        print(
-                            f"[MarketIQ] Fallback price: "
-                            f"{yahoo_symbol} "
-                            f"₹{price:.2f}"
+                        price = float(
+                            closes.iloc[-1]
                         )
 
-                        return round(price, 2)
+                        if math.isfinite(price) and price > 0:
 
-        except Exception as e:
+                            _log(
+                                f"Fallback price: {yahoo_symbol} "
+                                f"₹{price:.2f}"
+                            )
 
-            print(
-                f"[MarketIQ] Intraday fallback "
-                f"failed for "
-                f"{yahoo_symbol}: {e}"
-            )
+                            return round(price, 2)
+
+                if attempt < YAHOO_RETRIES:
+                    time.sleep(YAHOO_RETRY_DELAY_SECONDS)
+
+            except Exception as e:
+
+                _log(
+                    f"Intraday fallback failed for {yahoo_symbol} "
+                    f"on attempt {attempt}/{YAHOO_RETRIES}: {e!r}"
+                )
+
+                if attempt < YAHOO_RETRIES:
+                    time.sleep(YAHOO_RETRY_DELAY_SECONDS)
 
         return None
 
     except Exception as e:
 
-        print(
-            f"[MarketIQ] Live price error "
-            f"for {yahoo_symbol}: {e}"
+        _log(
+            f"Live price error for {yahoo_symbol}: {e!r}"
         )
 
         return None
@@ -687,6 +716,9 @@ def get_stock_data(symbol: str):
                 .dropna()
                 .iloc[-1]
             )
+
+            if not math.isfinite(price) or price <= 0:
+                price = None
 
         except Exception:
 
