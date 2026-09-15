@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+import re
 
 from services.data_service import (
     get_stock_history,
@@ -23,11 +24,24 @@ router = APIRouter(
 )
 
 
+# ============================================================
+# INPUT PROTECTION
+# ============================================================
+
+MAX_SYMBOL_LENGTH = 50
+
+# Supports NSE/BSE symbols and normal company-name searches while
+# rejecting control characters and obviously malformed input.
+VALID_SYMBOL_PATTERN = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9 .&'()_-]*$"
+)
+
+
 @router.get("/{symbol}")
 def stock(symbol: str):
 
     # ============================================================
-    # CLEAN INPUT
+    # CLEAN + VALIDATE INPUT
     # ============================================================
 
     symbol = symbol.strip()
@@ -40,6 +54,25 @@ def stock(symbol: str):
                 "or company name."
             ),
         }
+
+    if len(symbol) > MAX_SYMBOL_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Stock symbol or company name is too long. "
+                f"Maximum length is {MAX_SYMBOL_LENGTH} characters."
+            ),
+        )
+
+    if not VALID_SYMBOL_PATTERN.fullmatch(symbol):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid stock symbol or company name. "
+                "Use letters, numbers, spaces, dots, hyphens, "
+                "underscores, ampersands, apostrophes, or parentheses."
+            ),
+        )
 
     # ============================================================
     # RESOLVE SYMBOL
