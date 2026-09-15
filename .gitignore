@@ -40,3 +40,8 @@ htmlcov/
 *.temp
 # Local database
 backend/*.db
+
+# Local secrets and Python cache
+**/.env
+**/__pycache__/
+*.pyc
